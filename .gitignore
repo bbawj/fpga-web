@@ -1,0 +1,6 @@
+*.svf
+*.json
+*.config
+*.bit
+obj_dir/
+.hdl_checker/

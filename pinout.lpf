@@ -1,0 +1,29 @@
+# 25MHz clock from PHY (U13) - Pin P6
+LOCATE COMP "clk_25mhz" SITE "P6";
+IOBUF PORT "clk_25mhz" IO_TYPE=LVCMOS33;
+
+# LED (DATA_LED-) - Pin T6, active low, open drain
+LOCATE COMP "led" SITE "T6";
+IOBUF PORT "led" IO_TYPE=LVCMOS33 OPENDRAIN=ON;
+
+LOCATE COMP "button" SITE "R7";
+
+# MII Interface Constraints for Lattice ECP5
+# Shared signals between PHY0 and PHY1
+LOCATE COMP "phy_rst_b" SITE "R6";
+LOCATE COMP "mdc" SITE "R5";
+LOCATE COMP "mdio" SITE "T4";
+
+# PHY0 (U11) MII Interface
+LOCATE COMP "phy0_txd[3]" SITE "R1";
+LOCATE COMP "phy0_txd[2]" SITE "P1";
+LOCATE COMP "phy0_txd[1]" SITE "M1";
+LOCATE COMP "phy0_txd[0]" SITE "M2";
+LOCATE COMP "phy0_txctl" SITE "L2";
+LOCATE COMP "phy0_txc" SITE "L1";
+LOCATE COMP "phy0_rxd[3]" SITE "K3";
+LOCATE COMP "phy0_rxd[2]" SITE "K1";
+LOCATE COMP "phy0_rxd[1]" SITE "J3";
+LOCATE COMP "phy0_rxd[0]" SITE "K2";
+LOCATE COMP "phy0_rxctl" SITE "J2";
+LOCATE COMP "phy0_rxc" SITE "J1";
