@@ -3,10 +3,10 @@ YOSYS=$(TOOLPATH)/yosys
 PNR=$(TOOLPATH)/nextpnr-ecp5
 PACK=$(TOOLPATH)/ecppack
 LOADER=$(TOOLPATH)/openocd
-MODULE=blinky
+MODULE=mac
 
-synth: mac.sv
-	$(YOSYS) -p "synth_ecp5 -top $(MODULE) -json $(MODULE).json" $<
+synth: $(MODULE).sv clk_gen.sv
+	$(YOSYS) -p "synth_ecp5 -top $(MODULE) -json $(MODULE).json" $^
 	$(PNR) --25k --package CABGA256 --json $(MODULE).json \
 			--lpf pinout.lpf --textcfg $(MODULE).config
 	$(PACK) --svf $(MODULE).svf $(MODULE).config $(MODULE).bit
@@ -14,5 +14,7 @@ synth: mac.sv
 flash: $(MODULE).svf
 	$(LOADER) -f colorlight.cfg -c "svf -quiet -progress $@; exit"
 
-clean:
 
+clean:
+	rm *.bit
+	rm *.svf

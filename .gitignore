@@ -4,3 +4,8 @@
 *.bit
 obj_dir/
 .hdl_checker/
+*.xml
+**/sim_build/*
+__pycache__
+*.fst
+*iverilog_dump.v

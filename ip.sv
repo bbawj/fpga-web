@@ -1,11 +1,12 @@
 module ip_decode (
-  input valid;
-  input clk;
-  input [3:0] din;
+  input valid,
+  input clk,
+  input rst,
+  input [3:0] din,
 
-  output reg err;
-  output reg dout_ready; // data is ready
-  output reg [3:0] dout; // stripped IPV4 data
+  output reg err,
+  output reg dout_ready, // data is ready
+  output reg [3:0] dout // stripped IPV4 data
 );
 reg [15:0] checksum;
 reg [31:0] working;
@@ -14,14 +15,26 @@ reg [2:0] nibble_counter;
 reg [3:0] header_len;
 reg [15:0] total_len;
 reg [7:0] protocol;
+reg [31:0] da;
+reg [31:0] sa;
 
 always @(posedge clk) begin
+  if (rst) begin
+    dout_ready <= 1'b0;
+    dout <= '0;
+    err <= 0;
+    checksum <= '0;
+    working <= '0;
+    counter <= '0;
+    nibble_counter <= '0;
+  end
+
   if (valid) begin
     working <= {working[27:0], din};
     counter <= counter + 1;
 
     nibble_counter <= nibble_counter + 1;
-    if (nibble_counter == 3'd4) crc_calc(checksum, working[15:0]);
+    if (nibble_counter == 3'd4) checksum <= crc_calc(checksum, working[15:0]);
 
     case (counter)
       // IPV4 Version MUST BE 4
