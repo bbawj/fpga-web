@@ -25,14 +25,13 @@ always @(*) begin
 end
 
 always @(posedge clk) begin
-  if (rst) begin
+  if (rst || ~en) begin
     crc_out <= '0;
+    crc_reg <= 32'hFFFFFFFF;
     crc_next <= 32'hFFFFFFFF;
   end else begin
-    if (en) begin
-      crc_reg <= crc_next;
-      crc_out <= ~crc_next;
-    end
+    crc_reg <= crc_next;
+    crc_out <= ~crc_next;
   end
 end
 

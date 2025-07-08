@@ -40,7 +40,7 @@ async def calc_crc(dut, payload_lengths=None, payload_data=None):
 
     for test_data in test_frames:
         test_frame = GmiiFrame.from_payload(test_data)
-        for d in test_frame.get_payload():
+        for d in test_frame.get_payload(strip_fcs=False):
             await RisingEdge(tb.dut.clk)
             tb.dut.en = 1
             tb.dut.din = BinaryValue(d & 0xF, 4, False, 0)
@@ -51,7 +51,7 @@ async def calc_crc(dut, payload_lengths=None, payload_data=None):
         tb.dut.en = 0
         await RisingEdge(tb.dut.clk)
         out = tb.dut.crc_out.value
-        assert out == test_frame.get_fcs()
+        assert out == 0x2144DF1C
 
 
 def size_list():
