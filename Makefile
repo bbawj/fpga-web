@@ -5,7 +5,7 @@ PACK=$(TOOLPATH)/ecppack
 LOADER=$(TOOLPATH)/openocd
 MODULE=mac
 
-synth: $(MODULE).sv clk_gen.sv
+synth: $(MODULE).sv clk_gen.sv mii_tx.sv crc32.sv
 	$(YOSYS) -p "synth_ecp5 -top $(MODULE) -json $(MODULE).json" $^
 	$(PNR) --25k --package CABGA256 --json $(MODULE).json \
 			--lpf pinout.lpf --textcfg $(MODULE).config

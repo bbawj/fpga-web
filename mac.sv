@@ -48,13 +48,66 @@ clk_gen #(.CLKOP_FPHASE(2), .STEPS(1)) txc_phase90 (.clk_in(clk_25mhz), .clk_out
 
 `else
 
-mii_rcv _mii_rcv(.clk(phy_rxc), .data(phy_rxd), .rxctl(phy_rxctl));
-rgmii_phy_if (.clk(clk), .mac_gmii_txd(
+reg arp_e_valid;
+reg arp_e_ovalid;
+reg [3:0] arp_e_dout;
+arp_encode arp_e(
+  .clk(clk),
+  .rst(rst),
+  .valid(arp_e_valid),
+  .tha(arp_sha),
+  .tpa(arp_spa),
 
-reg [7:0] send_data;
-always @(posedge clk) begin
+  .ovalid(arp_e_ovalid),
+  .dout(arp_e_dout),
+  );
 
-end
+reg txen = '0;
+reg [3:0] txd = '0;
+reg send_next;
+rgmii_phy_if #(.MAC_ADDR('0)) phy(
+  .clk(clk), .rst(rst), .mac_phy_txen(txen), .mac_phy_txd(txd),
+  .mac_dest('0), .send_next(send_next), .txctl(phy_txctl), .dout(phy_txd)
+);
+
+// RX path
+reg arp_valid = 0;
+reg ip_valid = 0;
+mii_rcv rcv (
+  .clk(clk),
+  .rst(rst),
+  .mii_rxd(phy_rxd),
+  .mii_rxctl(phy_rxctl),
+  .crc_err(),
+  .arp_valid(arp_valid),
+  .ip_valid(ip_valid)
+  );
+
+reg ip_err = 0;
+reg ip_dout_ready = 0;
+reg [3:0] ip_dout;
+ip_decode ip_decoder(.valid(ip_valid), .clk(clk), .din(phy_txd), 
+  .err(ip_err), 
+  .dout_ready(ip_dout_ready),
+  .dout(ip_dout)
+  );
+
+reg arp_err = 0;
+reg arp_done = 0;
+reg [47:0] arp_sha = '0;
+reg [31:0] arp_spa = '0;
+reg [31:0] arp_tpa = '0;
+arp_decode arp_d(
+  .clk(clk),
+  .rst(rst),
+  .valid(arp_valid),
+  .din(phy_rxd),
+  .sha(arp_sha),
+  .spa(arp_spa),
+  .tpa(arp_tpa),
+  .err(arp_err),
+  .done(arp_done)
+  );
 
 `endif
 
