@@ -2,8 +2,7 @@ import itertools
 import logging
 
 import cocotb
-from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge
+from cocotb.clock import Timer
 from cocotb.binary import BinaryValue
 from cocotbext.eth import GmiiFrame
 
@@ -15,20 +14,9 @@ class TB:
         self.log = logging.getLogger("cocotb.tb")
         self.log.setLevel(logging.DEBUG)
 
-        cocotb.start_soon(Clock(dut.clk, 40, units='ns').start())
-
     async def reset(self):
-        self.dut.rst.setimmediatevalue(0)
-        await RisingEdge(self.dut.clk)
-        await RisingEdge(self.dut.clk)
-        self.dut.rst.value = 1
-        self.dut.rst.value = 1
-        await RisingEdge(self.dut.clk)
-        await RisingEdge(self.dut.clk)
-        self.dut.rst.value = 0
-        self.dut.rst.value = 0
-        await RisingEdge(self.dut.clk)
-        await RisingEdge(self.dut.clk)
+        await Timer(10, units='ns')
+
 
 
 async def calc_crc(dut, payload_lengths=None, payload_data=None):
@@ -40,18 +28,17 @@ async def calc_crc(dut, payload_lengths=None, payload_data=None):
 
     for test_data in test_frames:
         test_frame = GmiiFrame.from_payload(test_data)
-        for d in test_frame.get_payload(strip_fcs=False):
-            await RisingEdge(tb.dut.clk)
-            tb.dut.en = 1
-            tb.dut.din = BinaryValue(d & 0xF, 4, False, 0)
-            await RisingEdge(tb.dut.clk)
-            tb.dut.din = BinaryValue((d >> 4) & 0xF, 4, False, 0)
+        for i, d in enumerate(test_frame.get_payload(strip_fcs=False)):
+            tb.dut.din.value = BinaryValue(d & 0xF, 4, False, 0)
+            tb.dut.crc_next.value = tb.dut.crc_out.value if i != 0 else 0xFFFFFFFF
+            await Timer(10, units='ns')
 
-        await RisingEdge(tb.dut.clk)
-        tb.dut.en = 0
-        await RisingEdge(tb.dut.clk)
-        out = tb.dut.crc_out.value
-        assert out == 0x2144DF1C
+            tb.dut.din.value = BinaryValue((d >> 4) & 0xF, 4, False, 0)
+            tb.dut.crc_next.value = tb.dut.crc_out.value
+            await Timer(10, units='ns')
+
+        out = ~tb.dut.crc_out.value
+        assert int(out, 2) == 0x2144DF1C
 
 
 def size_list():
