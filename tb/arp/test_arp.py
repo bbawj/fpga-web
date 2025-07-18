@@ -39,16 +39,16 @@ async def test_arp_encode(dut):
     tha = bytes.fromhex("0000DEADBEEF")
     tpa = bytes.fromhex("69696969")
     spa = bytes.fromhex("00000000")
+    await FallingEdge(tb.dut.clk)
     tb.dut.encode_en.value = 1
     tb.dut.encode_tha.value = BinaryValue(tha, 48)
     tb.dut.encode_tpa.value = BinaryValue(tpa, 32)
-    await RisingEdge(tb.dut.clk)
     buf = bytearray()
     for _ in range(28):
         await RisingEdge(tb.dut.clk)
         assert tb.dut.encode_ovalid.value == 1
         low = tb.dut.encode_dout.value.integer
-        await RisingEdge(tb.dut.clk)
+        await FallingEdge(tb.dut.clk)
         assert tb.dut.encode_ovalid.value == 1
         buf.extend(((tb.dut.encode_dout.value.integer << 4) | low).to_bytes())
 

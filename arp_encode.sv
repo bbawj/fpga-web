@@ -22,18 +22,13 @@ localparam ARP_PROT_LEN = 8'h04;
 localparam ARP_PROT_REPLY = 16'h0002;
 reg [7:0] counter;
 
-reg handshake_complete = 0;
-always @* begin
-  handshake_complete = en && ovalid;
-end
-
   always @(posedge clk or negedge clk) begin
     if (rst) begin
       dout <= '0;
       counter <= '0;
       ovalid <= 0;
     end else begin
-      if (handshake_complete) begin
+      if (en) begin
         if (counter == 8'd56) counter <= '0;
         else counter <= counter + 1;
         // ARP Hardware Type = 1 = Ethernet
