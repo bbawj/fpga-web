@@ -2,10 +2,9 @@ import itertools
 import logging
 
 import cocotb
-from cocotb.clock import Timer, Clock
+from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, FallingEdge
 from cocotb.binary import BinaryValue
-from cocotbext.eth import GmiiFrame, RgmiiSink
 
 class TB:
     def __init__(self, dut):

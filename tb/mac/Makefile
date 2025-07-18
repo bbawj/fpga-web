@@ -5,10 +5,12 @@ TOPLEVEL_LANG ?= verilog
 
 ifeq ($(SIM), verilator)
 EXTRA_ARGS += --trace --trace-fst
+COMPILE_ARGS += -I../../
 endif
 
 ifeq ($(SIM), icarus)
 COMPILE_ARGS += -y/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/
+COMPILE_ARGS += -I../../
 PLUSARGS += -fst
 ifeq ($(WAVES), 1)
 		VERILOG_SOURCES += iverilog_dump.v
@@ -16,10 +18,15 @@ ifeq ($(WAVES), 1)
 endif
 endif
 
-VERILOG_SOURCES += ../mac.sv 
-VERILOG_SOURCES += ../clk_gen.sv 
-VERILOG_SOURCES += ../mii_rcv.sv
-VERILOG_SOURCES += ../ip.sv
+VERILOG_SOURCES += ../../mac.sv 
+VERILOG_SOURCES += ../../oddr.sv 
+VERILOG_SOURCES += ../../clk_gen.sv 
+VERILOG_SOURCES += ../../rgmii_rcv.sv
+VERILOG_SOURCES += ../../rgmii_tx.sv
+VERILOG_SOURCES += ../../arp_encode.sv
+VERILOG_SOURCES += ../../arp_decode.sv
+VERILOG_SOURCES += ../../crc32.sv
+VERILOG_SOURCES += ../../ip.sv
 
 # use VHDL_SOURCES for VHDL files
 

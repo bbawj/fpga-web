@@ -1,9 +1,12 @@
 module crc32 # (
+  // right shifting CRC32 implementation.
   CRC_POLY = 32'hEDB88320
 )
 (
   input wire [3:0] din,
   input wire [31:0] crc_next,
+  // crc_out *needs to be inverted* by the caller
+  // transmitted LSB first, no reverse required
   output reg [31:0] crc_out
 );
 

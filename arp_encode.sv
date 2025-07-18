@@ -22,51 +22,61 @@ localparam ARP_PROT_LEN = 8'h04;
 localparam ARP_PROT_REPLY = 16'h0002;
 reg [7:0] counter;
 
-  always @(posedge clk) begin
-    if (rst || ~en) begin
-      counter <= '0;
+reg handshake_complete = 0;
+always @* begin
+  handshake_complete = en && ovalid;
+end
+
+  always @(posedge clk or negedge clk) begin
+    if (rst) begin
       dout <= '0;
+      counter <= '0;
       ovalid <= 0;
     end else begin
-      counter <= counter + 1;
-      ovalid <= 1;
+      if (handshake_complete) begin
+        if (counter == 8'd56) counter <= '0;
+        else counter <= counter + 1;
+        // ARP Hardware Type = 1 = Ethernet
+        if (counter <= 8'd3) begin
+          dout <= `SELECT_NIBBLE(ARP_HW_TYPE, counter, 0);
+        end
+        // ARP Protocol Type = 0x0800 = IPV4
+        else if (counter <= 8'd7) begin
+          dout <= `SELECT_NIBBLE(ARP_PROT_TYPE, counter, 4);
+        end
+        else if (counter <= 8'd9) begin
+          dout <= `SELECT_NIBBLE(ARP_HW_LEN, counter, 8);
+        end
+        else if (counter <= 8'd11) begin
+          dout <= `SELECT_NIBBLE(ARP_PROT_LEN, counter, 10);
+        end
+        else if (counter <= 8'd15) begin
+          dout <= `SELECT_NIBBLE(ARP_PROT_REPLY, counter, 12);
+        end
+        // SHA, as a reply this is our device's HA
+        else if (counter <= 8'd27) begin
+          dout <= `SELECT_NIBBLE(MAC_ADDR, counter, 16);
+        end
+        // SPA, our IP ADDR
+        else if (counter <= 8'd35) begin
+          dout <= `SELECT_NIBBLE(IP_ADDR, counter, 28);
+        end
+        else if (counter <= 8'd47) begin
+          dout <= `SELECT_NIBBLE(tha, counter, 36);
+        end
+        else if (counter <= 8'd55) begin
+          dout <= `SELECT_NIBBLE(tpa, counter, 48);
+        end
+        else begin
+          dout <= '0;
+        end
+      end else begin
+        dout <= `SELECT_NIBBLE(ARP_HW_TYPE, 0, 0);
+        counter <= 1;
+      end
 
-      // ARP Hardware Type = 1 = Ethernet
-      if (counter <= 8'd3) begin
-        dout <= `SELECT_NIBBLE(ARP_HW_TYPE, counter, 0);
-      end
-      // ARP Protocol Type = 0x0800 = IPV4
-      else if (counter <= 8'd7) begin
-        dout <= `SELECT_NIBBLE(ARP_PROT_TYPE, counter, 4);
-      end
-      else if (counter <= 8'd9) begin
-        dout <= `SELECT_NIBBLE(ARP_HW_LEN, counter, 8);
-      end
-      else if (counter <= 8'd11) begin
-        dout <= `SELECT_NIBBLE(ARP_PROT_LEN, counter, 10);
-      end
-      else if (counter <= 8'd15) begin
-        dout <= `SELECT_NIBBLE(ARP_PROT_REPLY, counter, 12);
-      end
-      // SHA, as a reply this is our device's HA
-      else if (counter <= 8'd27) begin
-        dout <= `SELECT_NIBBLE(MAC_ADDR, counter, 16);
-      end
-      // SPA, our IP ADDR
-      else if (counter <= 8'd35) begin
-        dout <= `SELECT_NIBBLE(IP_ADDR, counter, 28);
-      end
-      else if (counter <= 8'd47) begin
-        dout <= `SELECT_NIBBLE(tha, counter, 36);
-      end
-      else if (counter <= 8'd55) begin
-        dout <= `SELECT_NIBBLE(tpa, counter, 48);
-      end
-      else begin
-        counter <= '0;
-        dout <= '0;
-        ovalid <= 0;
-      end
+      if (counter == 8'd56) ovalid <= 0;
+      else ovalid <= 1;
     end
   end
 
