@@ -47,10 +47,7 @@ async def test_arp_encode(dut):
     for _ in range(28):
         await RisingEdge(tb.dut.clk)
         assert tb.dut.encode_ovalid.value == 1
-        low = tb.dut.encode_dout.value.integer
-        await FallingEdge(tb.dut.clk)
-        assert tb.dut.encode_ovalid.value == 1
-        buf.extend(((tb.dut.encode_dout.value.integer << 4) | low).to_bytes())
+        buf.extend(tb.dut.encode_dout.value.integer.to_bytes())
 
     await RisingEdge(tb.dut.clk)
     assert tb.dut.encode_ovalid.value == 0

@@ -15,7 +15,7 @@ module test_arp(
   input reg [47:0] encode_tha,
   input reg [31:0] encode_tpa,
   output reg encode_ovalid,
-  output reg [3:0] encode_dout
+  output reg [7:0] encode_dout
   );
   arp_encode enc (
     .clk(clk),

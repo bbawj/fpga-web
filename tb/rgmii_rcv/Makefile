@@ -9,7 +9,7 @@ endif
 
 ifeq ($(SIM), icarus)
 COMPILE_ARGS += -y/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/
-COMPILE_ARGS += -Prgmii_phy_if.MAC_ADDR=0
+COMPILE_ARGS += -Prgmii_rcv.MAC_ADDR=0
 ifeq ($(WAVES), 1)
 		VERILOG_SOURCES += iverilog_dump.v
 		COMPILE_ARGS += -s iverilog_dump

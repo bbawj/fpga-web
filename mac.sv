@@ -15,12 +15,6 @@ localparam [47:0] LOC_MAC_ADDR = 48'hDEADBEEFCAFE;
 localparam [31:0] LOC_IP_ADDR = 32'h69696969;
 
 `ifdef LOOPBACK
-// RGMII requires specific setup and hold times.
-// This is achieved with a 90 degree phase offset tx_clk relative to the
-// sysclk used to load the tx lines
-reg pll_locked;
-clk_gen #(.CLKOP_FPHASE(2), .STEPS(1)) txc_phase90 (.clk_in(clk), .clk_out(phy_txc), .clk_locked(pll_locked));
-
   reg [3:0] rxd_temp = '0;
   reg rxdv = 0, rxer = 0;
   always @(posedge phy_rxc) begin
@@ -51,21 +45,19 @@ clk_gen #(.CLKOP_FPHASE(2), .STEPS(1)) txc_phase90 (.clk_in(clk), .clk_out(phy_t
 
 `else
 
-  assign phy_txc = clk;
-
 reg mac_phy_txen = '0;
-reg [3:0] mac_phy_txd = '0;
+reg [7:0] mac_phy_txd = '0;
 reg [47:0] mac_dest = '0;
 reg send_next;
 reg [15:0] ethertype = '0;
 rgmii_tx #(.MAC_ADDR(LOC_MAC_ADDR)) tx(
   .clk(clk), .rst(rst), .mac_phy_txen(mac_phy_txen), .mac_phy_txd(mac_phy_txd),
   .mac_dest(mac_dest), .ethertype(ethertype),
-  .send_next(send_next), .phy_txctl(phy_txctl), .phy_txd(phy_txd)
+  .send_next(send_next), .phy_txc(phy_txc), .phy_txctl(phy_txctl), .phy_txd(phy_txd)
 );
 
 reg arp_encode_ovalid;
-reg [3:0] arp_encode_dout;
+reg [7:0] arp_encode_dout;
 reg [47:0] arp_encode_tha = '0;
 reg [31:0] arp_encode_tpa = '0;
 arp_encode #(.MAC_ADDR(LOC_MAC_ADDR), .IP_ADDR(LOC_IP_ADDR)) arp_e(
@@ -133,7 +125,7 @@ reg [47:0] q_arp_tha = '0;
 reg [31:0] q_arp_tpa = '0;
 typedef enum {IDLE, ARP_PENDING, ARP} TX_STATE;
 TX_STATE tx_state = IDLE;
-  always @(posedge clk or negedge clk) begin
+  always @(posedge clk) begin
     if (rst) begin
       tx_state <= IDLE;
     end else begin

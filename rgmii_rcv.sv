@@ -28,7 +28,7 @@ reg [31:0] crc_next = 32'hFFFFFFFF;
 reg [31:0] crc_out;
 reg [3:0] din = '0;
 reg start_crc_flag = 0;
-crc32 crc (.din(din), .crc_next(crc_next), .crc_out(crc_out));
+crc32 #(.WIDTH(4)) crc (.din(din), .crc_next(crc_next), .crc_out(crc_out));
 always @(posedge clk or negedge clk) begin
   if (rst) begin
     crc_next <= 32'hFFFFFFFF;
