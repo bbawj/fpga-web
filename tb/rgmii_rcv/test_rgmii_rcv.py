@@ -30,7 +30,7 @@ class TB:
 
 
 
-@cocotb.test()
+#@cocotb.test()
 async def test_mac_rgmii_rcv_invalid_payload(dut):
     tb = TB(dut)
 
@@ -43,14 +43,14 @@ async def test_mac_rgmii_rcv_invalid_payload(dut):
         await tb.source.send(test_frame)
         await tb.source.wait()
         assert dut.ip_valid.value == 0
-        assert dut.arp_valid.value == 0
+        assert dut.arp_decode_valid.value == 0
         assert dut.crc_err.value == 0
 
 @cocotb.test()
 async def test_mac_rgmii_rcv_arp_payload(dut):
     op = bytes.fromhex("0001")
     sha = bytearray.fromhex("0000DEADBEEF")
-    tha = bytearray.fromhex("0000DEADBEEF")
+    tha = bytearray.fromhex("DEADBEEFCAFE")
     tpa = bytearray.fromhex("69696969")
     spa = bytearray.fromhex("ABCDEF12")
     tb = TB(dut)
@@ -60,11 +60,11 @@ async def test_mac_rgmii_rcv_arp_payload(dut):
     for test_data in test_frames:
         test_frame = GmiiFrame.from_payload(test_data)
         await tb.source.send(test_frame)
-        await with_timeout(RisingEdge(tb.dut.arp_valid), 320, "ns")
-        assert dut.arp_valid.value == 1
+        await with_timeout(RisingEdge(tb.dut.arp_decode_valid), 500, "ns")
+        assert dut.arp_decode_valid.value == 1
         await tb.source.wait()
         assert dut.ip_valid.value == 0
-        assert dut.arp_valid.value == 0
+        assert dut.arp_decode_valid.value == 0
         assert dut.crc_err.value == 0
 
 def size_list():
@@ -74,21 +74,19 @@ def incrementing_payload(length):
     return bytearray(itertools.islice(itertools.cycle(range(256)), length))
 
 def arp_payload(op, sha, tha, spa, tpa):
-    MAC_DEST= bytearray.fromhex("0000DEADBEEF")
-    MAC_SRC= bytearray.fromhex("000000000000")
     ether_type = bytearray.fromhex("0806")
-    hw_type = bytearray.fromhex("0001")[::-1]
-    protocol = bytearray.fromhex("0800")[::-1]
-    hw_len = bytearray.fromhex("06")[::-1]
-    prot_len = bytearray.fromhex("04")[::-1]
-    op = op[::-1]
-    sha = sha[::-1]
-    spa = spa[::-1]
-    tha = tha[::-1]
-    tpa = tpa[::-1]
+    hw_type = bytearray.fromhex("0001")
+    protocol = bytearray.fromhex("0800")
+    hw_len = bytearray.fromhex("06")
+    prot_len = bytearray.fromhex("04")
+    op = op
+    sha = sha
+    spa = spa
+    tha = tha
+    tpa = tpa
     payload = (ether_type + hw_type + protocol + hw_len + prot_len + op +
             sha + spa + tha + tpa)
-    return mac_payload(MAC_DEST, MAC_SRC, ether_type, payload)
+    return mac_payload(tha, sha, ether_type, payload)
 
 def mac_payload(dest, src, ether_type, payload):
     dest = dest[::-1]

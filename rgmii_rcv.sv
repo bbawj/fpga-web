@@ -6,6 +6,7 @@ module rgmii_rcv #(
   input wire [3:0] mii_rxd,
   input wire mii_rxctl,
 
+  output reg [7:0] rxd,
   output reg [47:0] sa,
   output reg busy,
   output reg crc_err,
@@ -13,11 +14,18 @@ module rgmii_rcv #(
   output reg ip_valid
 );
 
+reg [3:0] rxd_1, rxd_2;
+iddr #(.INPUT_WIDTH(4)) rxd_iddr(.clk(clk), .d(mii_rxd), .q1(rxd_1), .q2(rxd_2));
+// TODO: deal with rx_er
+reg rx_dv, rx_er;
+iddr #(.INPUT_WIDTH(1)) rxctl_iddr(.clk(clk), .d(mii_rxctl), .q1(rx_dv), .q2(rx_er));
+
 typedef enum {IDLE, PREAMBLE, DEST, SOURCE, TYPE, PAYLOAD, ABORT} MAC_STATE;
 MAC_STATE state = IDLE;
 
 always @(posedge clk) begin
-  if (mii_rxctl) begin
+  rxd <= {rxd_2, rxd_1};
+  if (rx_dv) begin
     busy <= 1;
   end else begin
     busy <= 0;
@@ -26,10 +34,10 @@ end
 
 reg [31:0] crc_next = 32'hFFFFFFFF;
 reg [31:0] crc_out;
-reg [3:0] din = '0;
+reg [7:0] din = '0;
 reg start_crc_flag = 0;
-crc32 #(.WIDTH(4)) crc (.din(din), .crc_next(crc_next), .crc_out(crc_out));
-always @(posedge clk or negedge clk) begin
+crc32 #(.WIDTH(8)) crc (.din(din), .crc_next(crc_next), .crc_out(crc_out));
+always @(posedge clk) begin
   if (rst) begin
     crc_next <= 32'hFFFFFFFF;
     din <= '0;
@@ -42,8 +50,8 @@ always @(posedge clk or negedge clk) begin
         din <= '0;
       end
       default: begin
-        if (mii_rxctl) begin
-          din <= mii_rxd;
+        if (rx_dv) begin
+          din <= {rxd_2, rxd_1};
           if (~start_crc_flag) begin
             crc_next <= 32'hFFFFFFFF;
             start_crc_flag <= 1;
@@ -65,8 +73,8 @@ reg [15:0] counter = '0;
 
 // Decoding the MAC frame
 // Skip idle and extension, strip off preamble and sfd
-always @(posedge clk or negedge clk) begin
-    if (rst || ~mii_rxctl) begin 
+always @(posedge clk) begin
+    if (rst || ~rx_dv) begin 
       state <= IDLE;
       da <= '0;
       sa <= '0;
@@ -78,7 +86,7 @@ always @(posedge clk or negedge clk) begin
     end else begin
       case (state)
         IDLE: begin 
-          if (mii_rxd == 4'b0101) state <= PREAMBLE;
+          if (rxd_1 == 4'b0101) state <= PREAMBLE;
           else begin
             da <= '0;
             sa <= '0;
@@ -86,27 +94,27 @@ always @(posedge clk or negedge clk) begin
           end
         end
         PREAMBLE: begin
-          if (mii_rxd == 4'b0101)
+          if (rxd_1 == 4'b0101 && rxd_2 == 4'b0101)
             state <= PREAMBLE;
           // SFD detected
-          else if (mii_rxd == 4'b1101)
+          else if (rxd_1 == 4'b0101 && rxd_2 == 4'b1101)
             state <= DEST;
           else state <= ABORT;
         end
         DEST: begin 
-          da <= { mii_rxd, da[47:4] };
-          if (counter == 16'd11) begin 
+          da <= { rxd_2, rxd_1, da[47:8] };
+          if (counter == 16'd5) begin 
             counter <= '0;
             // ABORT if we are not the intended receiver
-            if ({ mii_rxd, da[47:4] } == MAC_ADDR) state <= SOURCE;
+            if ({ rxd_2, rxd_1, da[47:8] } == MAC_ADDR) state <= SOURCE;
             else state <= ABORT;
           end else begin
             counter <= counter + 1;
           end
         end
         SOURCE: begin
-          sa <= { mii_rxd, sa[47:4] };
-          if (counter == 16'd11) begin 
+          sa <= { rxd_2, rxd_1, sa[47:8] };
+          if (counter == 16'd5) begin 
             state <= TYPE;
             counter <= '0;
           end else begin
@@ -114,14 +122,14 @@ always @(posedge clk or negedge clk) begin
           end
         end
         TYPE: begin
-          ether_type <= { mii_rxd, ether_type[15:4] };
-          if (counter == 16'd3) begin 
+          ether_type <= { rxd_2, rxd_1, ether_type[15:8] };
+          if (counter == 16'd1) begin 
             counter <= '0;
-            if ({mii_rxd, ether_type[15:4]} <= 16'd1500) begin
+            if ({rxd_2, rxd_1, ether_type[15:8]} <= 16'd1500) begin
               ip_valid <= 1;
               state <= PAYLOAD;
             end else begin 
-              case ({mii_rxd, ether_type[15:4]})
+              case ({rxd_2, rxd_1, ether_type[15:8]})
                 16'h0800: begin
                   ip_valid <= 1;
                   state <= PAYLOAD;
@@ -139,7 +147,7 @@ always @(posedge clk or negedge clk) begin
         end
         PAYLOAD: begin
           counter <= counter + 1;
-          if (counter >= 1504) begin
+          if (counter >= 1503) begin
             state <= ABORT;
           end
         end

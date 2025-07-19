@@ -4,6 +4,7 @@ WAVES = 1
 TOPLEVEL_LANG ?= verilog
 
 ifeq ($(SIM), verilator)
+COMPILE_ARGS += -y /home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/
 EXTRA_ARGS += --trace --trace-fst
 COMPILE_ARGS += -I../../
 endif
@@ -26,7 +27,7 @@ VERILOG_SOURCES += ../../rgmii_tx.sv
 VERILOG_SOURCES += ../../arp_encode.sv
 VERILOG_SOURCES += ../../arp_decode.sv
 VERILOG_SOURCES += ../../crc32.sv
-VERILOG_SOURCES += ../../ip.sv
+VERILOG_SOURCES += ../../iddr.sv
 
 # use VHDL_SOURCES for VHDL files
 

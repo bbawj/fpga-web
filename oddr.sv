@@ -1,11 +1,18 @@
 module oddr #(
   parameter INPUT_WIDTH = 1
   )(
+    input wire rst,
   input wire clk,
   input wire [INPUT_WIDTH - 1 : 0] d1,
   input wire [INPUT_WIDTH - 1: 0 ] d2,
   output wire [INPUT_WIDTH - 1 : 0] q
   );
+`ifdef SYNTHESIS
+  ODDRX1F oddr_1(.SCLK(clk), .RST(rst), .D0(d1[0]), .D1(d2[0]));
+  ODDRX1F oddr_2(.SCLK(clk), .RST(rst), .D0(d1[1]), .D1(d2[1]));
+  ODDRX1F oddr_3(.SCLK(clk), .RST(rst), .D0(d1[2]), .D1(d2[2]));
+  ODDRX1F oddr_4(.SCLK(clk), .RST(rst), .D0(d1[3]), .D1(d2[3]));
+`else
   reg [INPUT_WIDTH - 1: 0] d_reg_1 = '0;
   reg [INPUT_WIDTH - 1: 0] d_reg_2 = '0;
 
@@ -23,4 +30,5 @@ module oddr #(
   end
   assign q = q_reg;
 /* verilator lint_on MULTIDRIVEN */
+`endif
 endmodule

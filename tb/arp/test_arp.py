@@ -67,14 +67,13 @@ async def test_arp_decode(dut):
     test_frames = [arp_payload(op, sha, tha, spa, tpa) for x in size_list()]
 
     for test_data in test_frames:
-        await RisingEdge(tb.dut.clk)
-        tb.dut.decode_valid.value = 1
         for d in test_data:
-            tb.dut.decode_din.value = BinaryValue(d & 0xF, 4, False, 0)
-            await FallingEdge(tb.dut.clk)
-            tb.dut.decode_din.value = BinaryValue((d >> 4) & 0xF, 4, False, 0)
             await RisingEdge(tb.dut.clk)
+            tb.dut.decode_valid.value = 1
+            tb.dut.decode_din.value = BinaryValue(d, 8, False, 0)
 
+        await RisingEdge(tb.dut.clk)
+        await RisingEdge(tb.dut.clk)
         await RisingEdge(tb.dut.clk)
         assert tb.dut.decode_err.value == 0
         assert tb.dut.decode_done.value == 1
@@ -84,6 +83,7 @@ async def test_arp_decode(dut):
         assert tb.dut.decode_spa.value.buff == spa
 
         tb.dut.decode_valid.value = 0
+        await RisingEdge(tb.dut.clk)
         await RisingEdge(tb.dut.clk)
         assert tb.dut.decode_done.value == 0
 

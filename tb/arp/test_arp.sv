@@ -2,7 +2,7 @@ module test_arp(
   input clk,
   input decode_rst,
   input decode_valid,
-  input [3:0] decode_din,
+  input [7:0] decode_din,
   output reg [47:0] decode_sha,
   output reg [47:0] decode_tha,
   output reg [31:0] decode_spa,

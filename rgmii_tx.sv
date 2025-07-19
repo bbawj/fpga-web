@@ -25,11 +25,11 @@ clk_gen #(.CLKOP_FPHASE(2), .STEPS(1)) txc_phase90 (.clk_in(clk), .clk_out(phy_t
 
 
 reg [3:0] txd_1 = '0, txd_2 = '0;
-oddr #(.INPUT_WIDTH(4)) _oddr(.clk(clk), .d1(txd_1), .d2(txd_2), .q(phy_txd));
+oddr #(.INPUT_WIDTH(4)) _oddr(.rst(rst), .clk(clk), .d1(txd_1), .d2(txd_2), .q(phy_txd));
 reg phy_txen = 0;
 wire phy_txer;
 assign phy_txer = 0 ^ phy_txen;
-oddr #(.INPUT_WIDTH(1)) txctl_oddr(.clk(clk), .d1(phy_txen), .d2(phy_txer), .q(phy_txctl));
+oddr #(.INPUT_WIDTH(1)) txctl_oddr(.rst(rst), .clk(clk), .d1(phy_txen), .d2(phy_txer), .q(phy_txctl));
 typedef enum {IDLE, PREAMBLE, SFD, DEST, SOURCE, TYPE, PAYLOAD, PAD, FCS, IPG} MAC_STATE;
 
 reg [31:0] crc_next;

@@ -6,7 +6,7 @@ IOBUF PORT "clk_25mhz" IO_TYPE=LVCMOS33;
 LOCATE COMP "led" SITE "T6";
 IOBUF PORT "led" IO_TYPE=LVCMOS33 OPENDRAIN=ON;
 
-LOCATE COMP "button" SITE "R7";
+LOCATE COMP "rst" SITE "R7";
 
 # MII Interface Constraints for Lattice ECP5
 # Shared signals between PHY0 and PHY1
