@@ -30,7 +30,7 @@ class TB:
 
 
 
-#@cocotb.test()
+@cocotb.test()
 async def test_mac_rgmii_rcv_invalid_payload(dut):
     tb = TB(dut)
 
@@ -48,6 +48,7 @@ async def test_mac_rgmii_rcv_invalid_payload(dut):
 
 @cocotb.test()
 async def test_mac_rgmii_rcv_arp_payload(dut):
+    ether_type = bytearray.fromhex("0806")
     op = bytes.fromhex("0001")
     sha = bytearray.fromhex("0000DEADBEEF")
     tha = bytearray.fromhex("DEADBEEFCAFE")
@@ -55,7 +56,7 @@ async def test_mac_rgmii_rcv_arp_payload(dut):
     spa = bytearray.fromhex("ABCDEF12")
     tb = TB(dut)
     await tb.reset()
-    test_frames = [arp_payload(op, sha, tha, spa, tpa) for x in size_list()]
+    test_frames = [mac_payload(tha, sha, ether_type, arp_payload(op, sha, tha, spa, tpa)) for x in size_list()]
 
     for test_data in test_frames:
         test_frame = GmiiFrame.from_payload(test_data)
@@ -74,19 +75,17 @@ def incrementing_payload(length):
     return bytearray(itertools.islice(itertools.cycle(range(256)), length))
 
 def arp_payload(op, sha, tha, spa, tpa):
-    ether_type = bytearray.fromhex("0806")
-    hw_type = bytearray.fromhex("0001")
-    protocol = bytearray.fromhex("0800")
-    hw_len = bytearray.fromhex("06")
-    prot_len = bytearray.fromhex("04")
-    op = op
-    sha = sha
-    spa = spa
-    tha = tha
-    tpa = tpa
-    payload = (ether_type + hw_type + protocol + hw_len + prot_len + op +
+    hw_type = bytearray.fromhex("0001")[::-1]
+    protocol = bytearray.fromhex("0800")[::-1]
+    hw_len = bytearray.fromhex("06")[::-1]
+    prot_len = bytearray.fromhex("04")[::-1]
+    op = op[::-1]
+    sha = sha[::-1]
+    spa = spa[::-1]
+    tha = tha[::-1]
+    tpa = tpa[::-1]
+    return (hw_type + protocol + hw_len + prot_len + op +
             sha + spa + tha + tpa)
-    return mac_payload(tha, sha, ether_type, payload)
 
 def mac_payload(dest, src, ether_type, payload):
     dest = dest[::-1]
