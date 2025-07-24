@@ -20,6 +20,7 @@ endif
 endif
 
 VERILOG_SOURCES += ../../mac.sv 
+VERILOG_SOURCES += ../../mac_encode.sv 
 VERILOG_SOURCES += ../../oddr.sv 
 VERILOG_SOURCES += ../../clk_gen.sv 
 VERILOG_SOURCES += ../../rgmii_rcv.sv

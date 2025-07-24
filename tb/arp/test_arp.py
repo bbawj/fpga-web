@@ -1,7 +1,11 @@
+import os
+from pathlib import Path
 import itertools
 import logging
+import pytest
 
 import cocotb
+from cocotb.runner import get_runner
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, FallingEdge
 from cocotb.binary import BinaryValue
@@ -27,9 +31,8 @@ class TB:
         await RisingEdge(self.dut.clk)
         await RisingEdge(self.dut.clk)
 
-
 @cocotb.test()
-async def test_arp_encode(dut):
+async def arp_encode(dut):
     tb = TB(dut)
 
     await tb.reset(tb.dut.encode_rst)
@@ -39,22 +42,31 @@ async def test_arp_encode(dut):
     tha = bytes.fromhex("0000DEADBEEF")
     tpa = bytes.fromhex("69696969")
     spa = bytes.fromhex("00000000")
-    await FallingEdge(tb.dut.clk)
+    await RisingEdge(tb.dut.clk)
     tb.dut.encode_en.value = 1
     tb.dut.encode_tha.value = BinaryValue(tha, 48)
     tb.dut.encode_tpa.value = BinaryValue(tpa, 32)
     buf = bytearray()
-    for _ in range(28):
+    speed_100 = os.getenv("SPEED_100M", None)
+    ARP_LEN = 28
+    for _ in range(ARP_LEN):
         await RisingEdge(tb.dut.clk)
         assert tb.dut.encode_ovalid.value == 1
-        buf.extend(tb.dut.encode_dout.value.integer.to_bytes())
+        if speed_100 is not None:
+            low = tb.dut.encode_dout.value.integer
+            await RisingEdge(tb.dut.clk)
+            hi = tb.dut.encode_dout.value.integer
+            assert tb.dut.encode_ovalid.value == 1
+            buf.extend(((hi << 4) | low).to_bytes())
+        else:
+            buf.extend(tb.dut.encode_dout.value.integer.to_bytes())
 
     await RisingEdge(tb.dut.clk)
     assert tb.dut.encode_ovalid.value == 0
     assert buf == arp_payload(op, sha, tha, spa, tpa)
 
 @cocotb.test()
-async def test_arp_decode(dut):
+async def arp_decode(dut):
     tb = TB(dut)
 
     await tb.reset(tb.dut.decode_rst)
@@ -66,6 +78,7 @@ async def test_arp_decode(dut):
     spa = bytearray.fromhex("ABCDEF12")
     test_frames = [arp_payload(op, sha, tha, spa, tpa) for x in size_list()]
 
+    tb.dut.decode_valid.setimmediatevalue(0)
     for test_data in test_frames:
         for d in test_data:
             await RisingEdge(tb.dut.clk)
@@ -110,3 +123,33 @@ def arp_payload(op, sha, tha, spa, tpa):
     tpa = tpa[::-1]
     return (hw_type + protocol + hw_len + prot_len + op +
             sha + spa + tha + tpa)
+
+@pytest.mark.parametrize("speed_100", [True, False])
+def test_simple_dff_runner(speed_100):
+    sim = os.getenv("SIM", "icarus")
+
+    proj_path = Path(__file__).resolve().parent
+
+    sources = ["../../arp_encode.sv", "../../arp_decode.sv", "test_arp.sv"]
+
+    runner = get_runner(sim)
+    runner.build(
+        sources=sources,
+        hdl_toplevel="test_arp",
+        always=True,
+        clean=True,
+        waves=True,
+        verbose=True,
+        defines= {"SPEED_100M": "True"} if speed_100 else {},
+        includes=["../../"],
+        build_args=["-y/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/"],
+        timescale=("1ns", "1ps"),
+    )
+
+    runner.test(waves=True,
+                verbose=True,
+                extra_env={"SPEED_100M": "True" } if speed_100 else {},
+                hdl_toplevel="test_arp", test_module="test_arp,")
+
+if __name__ == "__main__":
+    test_simple_dff_runner()

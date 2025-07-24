@@ -1,6 +1,5 @@
 import itertools
 import logging
-import os
 
 import cocotb
 from cocotb.clock import Clock

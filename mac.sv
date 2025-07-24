@@ -45,13 +45,13 @@ localparam [31:0] LOC_IP_ADDR = 32'h69696969;
 
 `else
 
-reg mac_phy_txen = '0;
-reg [7:0] mac_phy_txd = '0;
+reg mac_encode_en = '0;
+reg [7:0] mac_payload = '0;
 reg [47:0] mac_dest = '0;
 reg send_next;
 reg [15:0] ethertype = '0;
-rgmii_tx #(.MAC_ADDR(LOC_MAC_ADDR)) tx(
-  .clk(clk), .rst(rst), .mac_phy_txen(mac_phy_txen), .mac_phy_txd(mac_phy_txd),
+mac_encode #(.MAC_ADDR(LOC_MAC_ADDR)) _mac_encode(
+  .clk(clk), .rst(rst), .en(mac_encode_en), .mac_payload(mac_payload),
   .mac_dest(mac_dest), .ethertype(ethertype),
   .send_next(send_next), .phy_txc(phy_txc), .phy_txctl(phy_txctl), .phy_txd(phy_txd)
 );
@@ -133,10 +133,10 @@ TX_STATE tx_state = IDLE;
     end else begin
       case (tx_state)
         IDLE: begin
-          mac_phy_txen <= 0;
-          mac_phy_txd <= '0;
+          mac_encode_en <= 0;
+          mac_payload <= '0;
           ethertype <= '0;
-          if (arp_done) begin
+          if (arp_done && arp_tha == LOC_MAC_ADDR) begin
             tx_state <= ARP_PENDING;
             arp_encode_tha <= arp_sha;
             arp_encode_tpa <= arp_spa;
@@ -147,14 +147,16 @@ TX_STATE tx_state = IDLE;
           if (~rgmii_rcv_busy) begin
             if (~rgmii_rcv_crc_err) begin
               tx_state <= ARP;
-              mac_phy_txen <= 1;
+              mac_encode_en <= 1;
             end
             else tx_state <= IDLE;
           end
         end
         ARP: begin
           if (arp_encode_handshake_complete) begin
-            mac_phy_txd <= arp_encode_dout;
+            // TODO: additional 1 cycle delay introduced here from moving
+            // upper layer payload into the mac encoder.
+            mac_payload <= arp_encode_dout;
           end
           // TODO: done signal instead??
           else if (~arp_encode_ovalid) tx_state <= IDLE;

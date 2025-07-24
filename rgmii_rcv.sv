@@ -23,8 +23,8 @@ iddr #(.INPUT_WIDTH(1)) rxctl_iddr(.clk(clk), .d(mii_rxctl), .q1(rx_dv), .q2(rx_
 typedef enum {IDLE, PREAMBLE, DEST, SOURCE, TYPE, PAYLOAD, ABORT} MAC_STATE;
 MAC_STATE state = IDLE;
 
+assign rxd = {rxd_2, rxd_1};
 always @(posedge clk) begin
-  rxd <= {rxd_2, rxd_1};
   if (rx_dv) begin
     busy <= 1;
   end else begin

@@ -1,13 +1,15 @@
 `ifndef utils_svh_
 `define utils_svh_
-// is for choosing the nibbles in least significant order in a byte
-`define SELECT_NIBBLE(data, end_count, start_count) \
-  data[4*(end_count - start_count + 1) - 1 -: 4]
 
+`ifdef SPEED_100M
+  // 100M works on 1 nibble per cycle, but our interfaces are all 8 bit. Since
+  // only the nibble matters, we can still select 1 byte but only shift by
+  // 4 bits on count increasing
+`define SELECT_BYTE(data, end_count, start_count) \
+  data[4*(end_count - start_count + 1) - 1 -: 4]
+`else
 `define SELECT_BYTE(data, end_count, start_count) \
   data[8*(end_count - start_count + 1) - 1 -: 8]
+`endif
 
-  // nibble: which nibble in LSB order
-`define SELECT_BYTE_NIBBLE(data, end_count, start_count, nibble) \
-  data[8*(end_count - start_count + 1) - (1 + (1 - nibble) * 4) -: 4]
 `endif

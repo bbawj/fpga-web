@@ -2,6 +2,11 @@
 SIM ?= verilator
 WAVES = 1
 TOPLEVEL_LANG ?= verilog
+SPEED_100M=1
+
+ifeq ($(SPEED_100M), 1)
+COMPILE_ARGS += -DSPEED_100M=1
+endif
 
 ifeq ($(SIM), verilator)
 EXTRA_ARGS += --trace --trace-fst
