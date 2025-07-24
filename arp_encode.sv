@@ -1,3 +1,4 @@
+`default_nettype	none
 `include "utils.svh"
 
 module arp_encode #(
@@ -96,5 +97,14 @@ localparam [7:0] COUNT_TPA = 8'd28;
       else ovalid <= 1;
     end
   end
+
+`ifdef FORMAL
+  initial	assume(rst);
+  always @(posedge clk) begin
+    assert (counter >= 0 && counter <= COUNT_TPA);
+    if (counter == 0) assert (ovalid == 0);
+    if (ovalid == 1) assert (counter != 0);
+  end
+`endif
 
 endmodule

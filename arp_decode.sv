@@ -28,7 +28,7 @@ reg op = 0;
       done <= 0;
     end else begin
       working <= {din, working[47:8]};
-      counter <= counter + 1;
+      if (counter < 8'd28) counter <= counter + 1;
 
       case (counter)
       // ARP Hardware Type = 1 = Ethernet
@@ -51,5 +51,17 @@ reg op = 0;
       endcase
     end
   end
+
+`ifdef FORMAL
+  initial	assume(rst);
+  always @(posedge clk) begin
+    assert (counter >= 0 && counter <= 8'd28);
+    if (~$past(rst) && $past(valid) && $past(counter) == 8'd28) assert (done == 1);
+    // counter counts up to 28 and stays there while valid
+    if (~$past(rst) && $past(valid) && valid) assert (($past(counter) + 1) == counter || counter == 8'd28);
+    // counter goes to 0 if valid deasserted
+    if (~$past(rst) && ~$past(valid)) assert (0 == counter);
+  end
+`endif
 
 endmodule

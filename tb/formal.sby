@@ -1,0 +1,26 @@
+[tasks]
+arp_encode
+arp_decode
+
+[options]
+arp_encode: mode prove
+arp_decode: mode prove
+depth 5
+
+[engines]
+smtbmc
+
+[script]
+arp_encode: read -formal arp_encode.sv
+arp_encode: prep -top arp_encode
+arp_encode: chformal -assert -skip 1
+
+arp_decode: read -formal arp_decode.sv
+arp_decode: prep -top arp_decode
+arp_decode: chformal -assert -skip 1
+
+
+[files]
+../arp_decode.sv
+../arp_encode.sv
+../utils.svh
