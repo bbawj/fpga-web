@@ -1,4 +1,3 @@
-`default_nettype	none
 `include "utils.svh"
 
 module arp_encode #(

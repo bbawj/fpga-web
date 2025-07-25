@@ -3,9 +3,11 @@ YOSYS=$(TOOLPATH)/yosys
 PNR=$(TOOLPATH)/nextpnr-ecp5
 PACK=$(TOOLPATH)/ecppack
 LOADER=$(TOOLPATH)/openocd
+SOURCEDIR=rtl
+SOURCES := $(shell find $(SOURCEDIR) -name '*.sv')
 MODULE=top
 
-synth: $(MODULE).sv mac.sv mac_encode.sv clk_gen.sv rgmii_tx.sv rgmii_rcv.sv crc32.sv arp_encode.sv arp_decode.sv iddr.sv oddr.sv
+synth: $(MODULE).sv $(SOURCES)
 	$(YOSYS) -D SYNTHESIS=1 -p "synth_ecp5 -top $(MODULE) -json $(MODULE).json" $^
 	$(PNR) --25k --package CABGA256 --json $(MODULE).json \
 			--lpf pinout.lpf --textcfg $(MODULE).config

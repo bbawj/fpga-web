@@ -2,16 +2,17 @@
 SIM ?= icarus
 WAVES = 1
 TOPLEVEL_LANG ?= verilog
+SOURCE_FOLDER=../../rtl
 
 ifeq ($(SIM), verilator)
 COMPILE_ARGS += -y /home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/
 EXTRA_ARGS += --trace --trace-fst
-COMPILE_ARGS += -I../../
+COMPILE_ARGS += -I$(SOURCE_FOLDER)/
 endif
 
 ifeq ($(SIM), icarus)
 COMPILE_ARGS += -y/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/
-COMPILE_ARGS += -I../../
+COMPILE_ARGS += -I$(SOURCE_FOLDER)/
 PLUSARGS += -fst
 ifeq ($(WAVES), 1)
 		VERILOG_SOURCES += iverilog_dump.v
@@ -19,16 +20,16 @@ ifeq ($(WAVES), 1)
 endif
 endif
 
-VERILOG_SOURCES += ../../mac.sv 
-VERILOG_SOURCES += ../../mac_encode.sv 
-VERILOG_SOURCES += ../../oddr.sv 
-VERILOG_SOURCES += ../../clk_gen.sv 
-VERILOG_SOURCES += ../../rgmii_rcv.sv
-VERILOG_SOURCES += ../../rgmii_tx.sv
-VERILOG_SOURCES += ../../arp_encode.sv
-VERILOG_SOURCES += ../../arp_decode.sv
-VERILOG_SOURCES += ../../crc32.sv
-VERILOG_SOURCES += ../../iddr.sv
+VERILOG_SOURCES += $(SOURCE_FOLDER)/mac.sv 
+VERILOG_SOURCES += $(SOURCE_FOLDER)/mac_encode.sv 
+VERILOG_SOURCES += $(SOURCE_FOLDER)/oddr.sv 
+VERILOG_SOURCES += $(SOURCE_FOLDER)/clk_gen.sv 
+VERILOG_SOURCES += $(SOURCE_FOLDER)/rgmii_rcv.sv
+VERILOG_SOURCES += $(SOURCE_FOLDER)/rgmii_tx.sv
+VERILOG_SOURCES += $(SOURCE_FOLDER)/arp_encode.sv
+VERILOG_SOURCES += $(SOURCE_FOLDER)/arp_decode.sv
+VERILOG_SOURCES += $(SOURCE_FOLDER)/crc32.sv
+VERILOG_SOURCES += $(SOURCE_FOLDER)/iddr.sv
 
 # use VHDL_SOURCES for VHDL files
 

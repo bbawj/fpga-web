@@ -1,3 +1,6 @@
+`ifndef COCOTB_SIM
+`default_nettype	none
+`endif
 module top(
     input wire clk_25mhz,
     input wire rst,

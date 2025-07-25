@@ -130,7 +130,10 @@ def test_simple_dff_runner(speed_100):
 
     proj_path = Path(__file__).resolve().parent
 
-    sources = ["../../arp_encode.sv", "../../arp_decode.sv", "test_arp.sv"]
+    source_folder = "../../rtl"
+    sources = [f"{source_folder}/arp_encode.sv",
+               f"{source_folder}/arp_decode.sv",
+               "test_arp.sv"]
 
     runner = get_runner(sim)
     runner.build(
@@ -141,7 +144,7 @@ def test_simple_dff_runner(speed_100):
         waves=True,
         verbose=True,
         defines= {"SPEED_100M": "True"} if speed_100 else {},
-        includes=["../../"],
+        includes=[f"{source_folder}/"],
         build_args=["-y/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/"],
         timescale=("1ns", "1ps"),
     )

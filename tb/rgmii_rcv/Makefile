@@ -2,6 +2,7 @@
 SIM ?= icarus
 WAVES = 1
 TOPLEVEL_LANG ?= verilog
+SOURCE_FOLDER=../rtl
 
 ifeq ($(SIM), verilator)
 EXTRA_ARGS += --trace --trace-fst
@@ -17,9 +18,9 @@ ifeq ($(WAVES), 1)
 endif
 endif
 
-VERILOG_SOURCES += ../../rgmii_rcv.sv 
-VERILOG_SOURCES += ../../crc32.sv 
-VERILOG_SOURCES += ../../iddr.sv 
+VERILOG_SOURCES += $(SOURCE_FOLDER)/rgmii_rcv.sv 
+VERILOG_SOURCES += $(SOURCE_FOLDER)/crc32.sv 
+VERILOG_SOURCES += $(SOURCE_FOLDER)/iddr.sv 
 
 # use VHDL_SOURCES for VHDL files
 

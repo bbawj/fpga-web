@@ -16,7 +16,7 @@ ifeq ($(WAVES), 1)
 endif
 endif
 
-VERILOG_SOURCES += ../../crc32.sv 
+VERILOG_SOURCES += ../rtl/crc32.sv 
 
 # use VHDL_SOURCES for VHDL files
 

@@ -88,7 +88,12 @@ def incrementing_payload(length):
 def test_simple_dff_runner(speed_100):
     sim = os.getenv("SIM", "icarus")
 
-    sources = ["../../mac_encode.sv", "../../oddr.sv", "../../rgmii_tx.sv", "../../clk_gen.sv", "../../crc32.sv"]
+    source_folder = "../../rtl"
+    sources = [f"{source_folder}/mac_encode.sv",
+               f"{source_folder}/oddr.sv",
+               f"{source_folder}/rgmii_tx.sv",
+               f"{source_folder}/clk_gen.sv",
+               f"{source_folder}/crc32.sv"]
 
     runner = get_runner(sim)
     runner.build(
@@ -99,7 +104,7 @@ def test_simple_dff_runner(speed_100):
         waves=True,
         verbose=True,
         defines= {"SPEED_100M": "True"} if speed_100 else {},
-        includes=["../../"],
+        includes=[f"{source_folder}/"],
         build_args=["-y/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/"],
         timescale=("1ns", "1ps"),
     )
