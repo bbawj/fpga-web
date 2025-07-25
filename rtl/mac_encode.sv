@@ -134,16 +134,9 @@ always @(posedge clk) begin
         crc_din <= `SELECT_BYTE(ethertype, counter, COUNT_SOURCE);
         crc_next <= crc_out;
         counter <= counter + 1;
-        if (counter == COUNT_TYPE - 2) begin
-          // TODO: Tell users of this module that mac header is done.
-          // When upper layers read this on the next cycle, they have to
-          // ensure that their data valid is held high with the first output.
-          // This output is loaded into mac_payload by the transmit controller,
-          // which takes 1 additional cycle. Hence, this signal needs to be
-          // raised 1 cycle earlier.
-          send_next <= 1;
-        end
         if (counter == COUNT_TYPE - 1) begin 
+          // Tell users of this module that mac header is done.
+          send_next <= 1;
           cur_state <= PAYLOAD;
         end
       end

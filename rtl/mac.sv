@@ -118,11 +118,6 @@ arp_decode arp_d(
   .done(arp_done)
   );
 
-  reg arp_encode_handshake_complete = 0;
-  always @* begin
-    arp_encode_handshake_complete = send_next && arp_encode_ovalid;
-  end
-
 reg [47:0] q_arp_tha = '0;
 reg [31:0] q_arp_tpa = '0;
 typedef enum {IDLE, ARP_PENDING, ARP} TX_STATE;
@@ -153,19 +148,21 @@ TX_STATE tx_state = IDLE;
           end
         end
         ARP: begin
-          if (arp_encode_handshake_complete) begin
-            // TODO: additional 1 cycle delay introduced here from moving
-            // upper layer payload into the mac encoder.
-            mac_payload <= arp_encode_dout;
-          end
           // TODO: done signal instead??
-          else if (~arp_encode_ovalid) tx_state <= IDLE;
+          if (~arp_encode_ovalid) tx_state <= IDLE;
         end
       endcase
     end
   end
 
 `endif
+
+  reg arp_encode_handshake_complete = 0;
+  always @* begin
+    mac_payload = '0;
+    arp_encode_handshake_complete = send_next && arp_encode_ovalid;
+    if (arp_encode_handshake_complete && tx_state == ARP) mac_payload = arp_encode_dout;
+  end
 
 endmodule
 
