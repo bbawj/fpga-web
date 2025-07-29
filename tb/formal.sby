@@ -21,6 +21,6 @@ arp_decode: chformal -assert -skip 1
 
 
 [files]
-../arp_decode.sv
-../arp_encode.sv
-../utils.svh
+../rtl/arp_decode.sv
+../rtl/arp_encode.sv
+../rtl/utils.svh

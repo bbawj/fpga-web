@@ -73,18 +73,30 @@ arp_encode #(.MAC_ADDR(LOC_MAC_ADDR), .IP_ADDR(LOC_IP_ADDR)) arp_e(
 
 // RX path
 reg [7:0] rxd;
+wire rxc, rx_dv, rx_er;
+rgmii_rcv rcv (
+  .rst(rst),
+  .mii_rxc(phy_rxc),
+  .mii_rxd(phy_rxd),
+  .mii_rxctl(phy_rxctl),
+
+  .rxc(rxc),
+  .rxd(rxd),
+  .rx_dv(rx_dv),
+  .rx_er(rx_er)
+  );
+
 reg arp_decode_valid;
 reg ip_valid;
 reg rgmii_rcv_busy;
 reg rgmii_rcv_crc_err;
 reg [47:0] mac_sa;
-rgmii_rcv #(.MAC_ADDR(LOC_MAC_ADDR)) rcv (
-  .clk(phy_rxc),
+mac_decode #(.MAC_ADDR(LOC_MAC_ADDR)) _mac_decode (
+  .clk(rxc),
   .rst(rst),
-  .mii_rxd(phy_rxd),
-  .mii_rxctl(phy_rxctl),
-
   .rxd(rxd),
+  .rx_dv(rx_dv),
+
   .sa(mac_sa),
   .busy(rgmii_rcv_busy),
   .crc_err(rgmii_rcv_crc_err),
@@ -106,7 +118,7 @@ reg arp_done;
 reg [47:0] arp_sha, arp_tha;
 reg [31:0] arp_spa, arp_tpa;
 arp_decode arp_d(
-  .clk(phy_rxc),
+  .clk(rxc),
   .rst(rst),
   .valid(arp_decode_valid),
   .din(rxd),

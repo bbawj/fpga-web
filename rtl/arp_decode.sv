@@ -28,8 +28,9 @@ reg op = 0;
       done <= 0;
     end else begin
       working <= {din, working[47:8]};
-      if (counter < 8'd28) counter <= counter + 1;
+      done <= 0;
 
+      if (counter < 8'd28) counter <= counter + 1;
       case (counter)
       // ARP Hardware Type = 1 = Ethernet
       8'd2: if (working[47:32] != 1) err <= 1;
