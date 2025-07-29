@@ -6,9 +6,9 @@ module rgmii_tx (
   input wire mac_phy_txen,
   input wire [7:0] mac_phy_txd,
 
-  output reg phy_txc, 
-  output reg phy_txctl, 
-  output reg [3:0] phy_txd
+  output wire phy_txc, 
+  output wire phy_txctl, 
+  output wire [3:0] phy_txd
 );
 // RGMII requires specific setup and hold times.
 // This is achieved with a 90 degree phase offset tx_clk relative to the

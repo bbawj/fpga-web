@@ -1,7 +1,7 @@
 module clk_divider #(parameter RATIO = 2) (
   input clk_in,
   input rst,
-  output reg clk_out
+  output wire clk_out
 );
 reg [31:0] counter;
 

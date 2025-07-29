@@ -8,8 +8,8 @@ module top(
     output reg mdc,
     inout wire mdio,
     // PHY0 MII Interface
-    output reg [3:0] phy0_txd,
-    output reg phy0_txctl,
+    output wire [3:0] phy0_txd,
+    output wire phy0_txctl,
     output wire phy0_txc,
     input wire [3:0] phy0_rxd,
     input wire phy0_rxctl,

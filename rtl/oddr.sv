@@ -8,10 +8,12 @@ module oddr #(
   output wire [INPUT_WIDTH - 1 : 0] q
   );
 `ifdef SYNTHESIS
-  ODDRX1F oddr_1(.SCLK(clk), .RST(rst), .D0(d1[0]), .D1(d2[0]));
-  ODDRX1F oddr_2(.SCLK(clk), .RST(rst), .D0(d1[1]), .D1(d2[1]));
-  ODDRX1F oddr_3(.SCLK(clk), .RST(rst), .D0(d1[2]), .D1(d2[2]));
-  ODDRX1F oddr_4(.SCLK(clk), .RST(rst), .D0(d1[3]), .D1(d2[3]));
+genvar i;
+generate
+  for (i = 0; i < INPUT_WIDTH; i = i + 1) begin
+    ODDRX1F oddr_inst(.SCLK(clk), .RST(rst), .D0(d1[i]), .D1(d2[i]), .Q(q[i]));
+  end
+endgenerate
 `else
   reg [INPUT_WIDTH - 1: 0] d_reg_1 = '0;
   reg [INPUT_WIDTH - 1: 0] d_reg_2 = '0;
