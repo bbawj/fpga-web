@@ -93,18 +93,18 @@ always @(posedge clk) begin
           else state <= ABORT;
         end
         DEST: begin 
-          da <= { rxd, da[47:8] };
+          da <= { da[39:0], rxd };
           if (counter == 16'd5) begin 
             counter <= '0;
             // ABORT if we are not the intended receiver
-            if ({ rxd, da[47:8] } == MAC_ADDR) state <= SOURCE;
+            if ({ da[39:0], rxd } == MAC_ADDR) state <= SOURCE;
             else state <= ABORT;
           end else begin
             counter <= counter + 1;
           end
         end
         SOURCE: begin
-          sa <= { rxd, sa[47:8] };
+          sa <= { sa[39:0], rxd };
           if (counter == 16'd5) begin 
             state <= TYPE;
             counter <= '0;
@@ -113,14 +113,14 @@ always @(posedge clk) begin
           end
         end
         TYPE: begin
-          ether_type <= { rxd, ether_type[15:8] };
+          ether_type <= { ether_type[7:0], rxd };
           if (counter == 16'd1) begin 
             counter <= '0;
-            if ({rxd, ether_type[15:8]} <= 16'd1500) begin
+            if ({ether_type[7:0], rxd} <= 16'd1500) begin
               ip_valid <= 1;
               state <= PAYLOAD;
             end else begin 
-              case ({rxd, ether_type[15:8]})
+              case ({ether_type[7:0], rxd})
                 16'h0800: begin
                   ip_valid <= 1;
                   state <= PAYLOAD;

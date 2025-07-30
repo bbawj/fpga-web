@@ -1,6 +1,7 @@
 module mac ( 
     input wire clk,
     input wire rst,
+    output wire led,
     
     // PHY0 MII Interface
     output reg [3:0] phy_txd,
@@ -57,13 +58,14 @@ mac_encode #(.MAC_ADDR(LOC_MAC_ADDR)) _mac_encode(
 );
 
 reg arp_encode_ovalid;
+reg arp_encode_en;
 reg [7:0] arp_encode_dout;
 reg [47:0] arp_encode_tha = '0;
 reg [31:0] arp_encode_tpa = '0;
 arp_encode #(.MAC_ADDR(LOC_MAC_ADDR), .IP_ADDR(LOC_IP_ADDR)) arp_e(
   .clk(clk),
   .rst(rst),
-  .en(send_next),
+  .en(arp_encode_en),
   .tha(arp_encode_tha),
   .tpa(arp_encode_tpa),
 
@@ -129,6 +131,7 @@ arp_decode arp_d(
   .err(arp_err),
   .done(arp_done)
   );
+  assign led = ~arp_done;
 
 reg [47:0] q_arp_tha = '0;
 reg [31:0] q_arp_tpa = '0;
@@ -141,9 +144,9 @@ TX_STATE tx_state = IDLE;
       case (tx_state)
         IDLE: begin
           mac_encode_en <= 0;
-          mac_payload <= '0;
           ethertype <= '0;
           if (arp_done && arp_tha == LOC_MAC_ADDR) begin
+            mac_dest <= mac_sa;
             tx_state <= ARP_PENDING;
             arp_encode_tha <= arp_sha;
             arp_encode_tpa <= arp_spa;
@@ -167,14 +170,22 @@ TX_STATE tx_state = IDLE;
     end
   end
 
-`endif
-
   reg arp_encode_handshake_complete = 0;
   always @* begin
     mac_payload = '0;
+    arp_encode_en = 0;
     arp_encode_handshake_complete = send_next && arp_encode_ovalid;
-    if (arp_encode_handshake_complete && tx_state == ARP) mac_payload = arp_encode_dout;
+    case (tx_state)
+      ARP: begin
+        if (arp_encode_handshake_complete) begin
+          mac_payload = arp_encode_dout;
+          arp_encode_en = 1;
+        end
+      end
+    endcase
   end
+
+`endif
 
 endmodule
 

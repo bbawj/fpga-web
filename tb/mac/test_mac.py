@@ -6,12 +6,12 @@ import cocotb
 import pytest
 from cocotb.runner import get_runner
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge
+from cocotb.triggers import RisingEdge, with_timeout
 
 from cocotbext.eth import GmiiFrame, RgmiiPhy
 
 LOC_MAC_ADDR = "DEADBEEFCAFE"
-MAC_SRC = "000000000000"
+MAC_SRC = "b025aa3306fe"
 
 class TB:
     def __init__(self, dut, speed_100):
@@ -60,38 +60,38 @@ async def arp_reply(dut):
     sha = bytes.fromhex(MAC_SRC)
     tha = bytes.fromhex(LOC_MAC_ADDR)
     tpa = bytes.fromhex("69696969")
-    spa = bytes.fromhex("00000000")
+    spa = bytes.fromhex("c0a84564")
 
-    #test_data = bytes.fromhex("fecaefbeaddeb025aa3306fe08060001080006040001b025aa3306fec0a845640000000000006969696900000000000000000000000000000000")
+    test_data = bytes.fromhex("deadbeefcafeb025aa3306fe08060001080006040001b025aa3306fec0a84564DEADBEEFCAFE6969696900000000000000000000000000000000")
 
-    test_data = mac_payload(tha, sha, ether_type, arp_payload(op, sha, tha, spa, tpa))
+    #test_data = mac_payload(tha, sha, ether_type, arp_payload(op, sha, tha, spa, tpa))
     test_frame = GmiiFrame.from_payload(test_data)
     await tb.rgmii_phy.rx.send(test_frame)
 
     reply_op = bytes.fromhex("0002")
     expected_data = mac_payload(sha, tha, ether_type, arp_payload(reply_op, tha, sha, tpa, spa))
-    rx_frame = await tb.rgmii_phy.tx.recv()
+    rx_frame = await with_timeout(tb.rgmii_phy.tx.recv(), 50000, "ns")
     assert rx_frame.get_payload() == expected_data
     assert rx_frame.check_fcs()
     assert rx_frame.error is None
 
 def arp_payload(op, sha, tha, spa, tpa):
-    hw_type = bytearray.fromhex("0001")[::-1]
-    protocol = bytearray.fromhex("0800")[::-1]
-    hw_len = bytearray.fromhex("06")[::-1]
-    prot_len = bytearray.fromhex("04")[::-1]
-    op = op[::-1]
-    sha = sha[::-1]
-    spa = spa[::-1]
-    tha = tha[::-1]
-    tpa = tpa[::-1]
+    hw_type = bytearray.fromhex("0001")
+    protocol = bytearray.fromhex("0800")
+    hw_len = bytearray.fromhex("06")
+    prot_len = bytearray.fromhex("04")
+    op = op
+    sha = sha
+    spa = spa
+    tha = tha
+    tpa = tpa
     return (hw_type + protocol + hw_len + prot_len + op +
             sha + spa + tha + tpa)
 
 def mac_payload(dest, src, ether_type, payload):
-    dest = dest[::-1]
-    src = src[::-1]
-    ether_type = ether_type[::-1]
+    dest = dest
+    src = src
+    ether_type = ether_type
     payload = (dest + src + ether_type + payload)
     if len(payload) < 60:
         payload = payload + bytearray(60-len(payload))

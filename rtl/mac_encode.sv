@@ -1,7 +1,7 @@
 `include "utils.svh"
 
 module mac_encode #(
-  parameter [47:0] MAC_ADDR = '0
+  parameter [47:0] MAC_ADDR = 48'hdeadbeefcafe
   )(
   input wire clk,
   input wire rst,
@@ -108,13 +108,13 @@ always @(posedge clk) begin
         if (counter == COUNT_PREAMBLE - 1) cur_state <= SFD;
       end
       SFD: begin
-        mac_phy_txd <= `SELECT_BYTE(sfd, counter, COUNT_PREAMBLE);
+        mac_phy_txd <= `SELECT_BYTE_MSB(sfd, counter, COUNT_PREAMBLE);
         counter <= counter + 1;
         if (counter == COUNT_SFD - 1) cur_state <= DEST;
       end
       DEST: begin
-        mac_phy_txd <= `SELECT_BYTE(mac_dest, counter, COUNT_SFD);
-        crc_din <= `SELECT_BYTE(mac_dest, counter, COUNT_SFD);
+        mac_phy_txd <= `SELECT_BYTE_MSB(mac_dest, counter, COUNT_SFD);
+        crc_din <= `SELECT_BYTE_MSB(mac_dest, counter, COUNT_SFD);
 
         if (counter == COUNT_SFD) crc_next <= 32'hFFFFFFFF;
         else crc_next <= crc_out;
@@ -123,15 +123,15 @@ always @(posedge clk) begin
         if (counter == COUNT_DEST - 1) cur_state <= SOURCE;
       end
       SOURCE: begin
-        mac_phy_txd <= `SELECT_BYTE(MAC_ADDR, counter, COUNT_DEST);
-        crc_din <= `SELECT_BYTE(MAC_ADDR, counter, COUNT_DEST);
+        mac_phy_txd <= `SELECT_BYTE_MSB(MAC_ADDR, counter, COUNT_DEST);
+        crc_din <= `SELECT_BYTE_MSB(MAC_ADDR, counter, COUNT_DEST);
         crc_next <= crc_out;
         counter <= counter + 1;
         if (counter == COUNT_SOURCE - 1) cur_state <= TYPE;
       end
       TYPE: begin
-        mac_phy_txd <= `SELECT_BYTE(ethertype, counter, COUNT_SOURCE);
-        crc_din <= `SELECT_BYTE(ethertype, counter, COUNT_SOURCE);
+        mac_phy_txd <= `SELECT_BYTE_MSB(ethertype, counter, COUNT_SOURCE);
+        crc_din <= `SELECT_BYTE_MSB(ethertype, counter, COUNT_SOURCE);
         crc_next <= crc_out;
         counter <= counter + 1;
         if (counter == COUNT_TYPE - 1) begin 
@@ -153,7 +153,7 @@ always @(posedge clk) begin
           end else begin
             cur_state <= FCS;
             fcs_counter <= fcs_counter + 1;
-            mac_phy_txd <= `SELECT_BYTE(~crc_out, fcs_counter, 0);
+            mac_phy_txd <= `SELECT_BYTE_LSB(~crc_out, fcs_counter, 0);
           end
         end else begin
           mac_phy_txd <= mac_payload;
@@ -174,7 +174,7 @@ always @(posedge clk) begin
       end
       FCS: begin
         fcs_counter <= fcs_counter + 1;
-        mac_phy_txd <= `SELECT_BYTE(~crc_out, fcs_counter, 0);
+        mac_phy_txd <= `SELECT_BYTE_LSB(~crc_out, fcs_counter, 0);
         // TODO: IPG
         counter <= counter + 1;
         if (fcs_counter == COUNT_FCS - 1) cur_state <= IPG;

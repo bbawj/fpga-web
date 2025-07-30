@@ -10,6 +10,9 @@ from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, FallingEdge
 from cocotb.binary import BinaryValue
 
+LOC_MAC_ADDR = "DEADBEEFCAFE"
+LP_MAC_ADDR = "FEEDBABEFACE"
+
 class TB:
     def __init__(self, dut):
         self.dut = dut
@@ -38,8 +41,8 @@ async def arp_encode(dut):
     await tb.reset(tb.dut.encode_rst)
 
     op = bytes.fromhex("0002")
-    sha = bytes.fromhex("000000000000")
-    tha = bytes.fromhex("0000DEADBEEF")
+    sha = bytes.fromhex(LOC_MAC_ADDR)
+    tha = bytes.fromhex(LP_MAC_ADDR)
     tpa = bytes.fromhex("69696969")
     spa = bytes.fromhex("00000000")
     await RisingEdge(tb.dut.clk)
@@ -54,8 +57,10 @@ async def arp_encode(dut):
         assert tb.dut.encode_ovalid.value == 1
         if speed_100 is not None:
             low = tb.dut.encode_dout.value.integer
+            print(low)
             await RisingEdge(tb.dut.clk)
             hi = tb.dut.encode_dout.value.integer
+            print(low)
             assert tb.dut.encode_ovalid.value == 1
             buf.extend(((hi << 4) | low).to_bytes())
         else:
@@ -72,8 +77,8 @@ async def arp_decode(dut):
     await tb.reset(tb.dut.decode_rst)
 
     op = bytes.fromhex("0001")
-    sha = bytearray.fromhex("0000DEADBEEF")
-    tha = bytearray.fromhex("0000DEADBEEF")
+    sha = bytearray.fromhex(LP_MAC_ADDR)
+    tha = bytearray.fromhex(LOC_MAC_ADDR)
     tpa = bytearray.fromhex("69696969")
     spa = bytearray.fromhex("ABCDEF12")
     test_frames = [arp_payload(op, sha, tha, spa, tpa) for x in size_list()]
@@ -112,15 +117,15 @@ def incrementing_payload(length):
     return bytearray(itertools.islice(itertools.cycle(range(256)), length))
 
 def arp_payload(op, sha, tha, spa, tpa):
-    hw_type = bytearray.fromhex("0001")[::-1]
-    protocol = bytearray.fromhex("0800")[::-1]
-    hw_len = bytearray.fromhex("06")[::-1]
-    prot_len = bytearray.fromhex("04")[::-1]
-    op = op[::-1]
-    sha = sha[::-1]
-    spa = spa[::-1]
-    tha = tha[::-1]
-    tpa = tpa[::-1]
+    hw_type = bytearray.fromhex("0001")
+    protocol = bytearray.fromhex("0800")
+    hw_len = bytearray.fromhex("06")
+    prot_len = bytearray.fromhex("04")
+    op = op
+    sha = sha
+    spa = spa
+    tha = tha
+    tpa = tpa
     return (hw_type + protocol + hw_len + prot_len + op +
             sha + spa + tha + tpa)
 
@@ -144,6 +149,7 @@ def test_simple_dff_runner(speed_100):
         waves=True,
         verbose=True,
         defines= {"SPEED_100M": "True"} if speed_100 else {},
+        parameters={"arp_encode.MAC_ADDR": f"48\'h{LOC_MAC_ADDR}"},
         includes=[f"{source_folder}/"],
         build_args=["-y/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/"],
         timescale=("1ns", "1ps"),
@@ -151,6 +157,7 @@ def test_simple_dff_runner(speed_100):
 
     runner.test(waves=True,
                 verbose=True,
+                parameters={"MAC_ADDR": LOC_MAC_ADDR},
                 extra_env={"SPEED_100M": "True" } if speed_100 else {},
                 hdl_toplevel="test_arp", test_module="test_arp,")
 

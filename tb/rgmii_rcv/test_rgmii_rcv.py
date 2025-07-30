@@ -82,15 +82,15 @@ def incrementing_payload(length):
     return bytearray(itertools.islice(itertools.cycle(range(256)), length))
 
 def arp_payload(op, sha, tha, spa, tpa):
-    hw_type = bytearray.fromhex("0001")[::-1]
-    protocol = bytearray.fromhex("0800")[::-1]
-    hw_len = bytearray.fromhex("06")[::-1]
-    prot_len = bytearray.fromhex("04")[::-1]
-    op = op[::-1]
-    sha = sha[::-1]
-    spa = spa[::-1]
-    tha = tha[::-1]
-    tpa = tpa[::-1]
+    hw_type = bytearray.fromhex("0001")
+    protocol = bytearray.fromhex("0800")
+    hw_len = bytearray.fromhex("06")
+    prot_len = bytearray.fromhex("04")
+    op = op
+    sha = sha
+    spa = spa
+    tha = tha
+    tpa = tpa
     return (hw_type + protocol + hw_len + prot_len + op +
             sha + spa + tha + tpa)
 

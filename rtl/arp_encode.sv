@@ -1,8 +1,8 @@
 `include "utils.svh"
 
 module arp_encode #(
-  parameter [47:0] MAC_ADDR = '0,
-  parameter [31:0] IP_ADDR = '0
+  parameter [47:0] MAC_ADDR = 48'hDEADBEEFCAFE,
+  parameter [31:0] IP_ADDR = 32'h69696969
   )
   (
   input clk,
@@ -55,40 +55,40 @@ localparam [7:0] COUNT_TPA = 8'd28;
         else counter <= counter + 1;
         // ARP Hardware Type = 1 = Ethernet
         if (counter <= COUNT_HW_TYPE - 1) begin
-          dout <= `SELECT_BYTE(ARP_HW_TYPE, counter, 0);
+          dout <= `SELECT_BYTE_MSB(ARP_HW_TYPE, counter, 0);
         end
         // ARP Protocol Type = 0x0800 = IPV4
         else if (counter <= COUNT_PROT_TYPE - 1) begin
-          dout <= `SELECT_BYTE(ARP_PROT_TYPE, counter, COUNT_HW_TYPE);
+          dout <= `SELECT_BYTE_MSB(ARP_PROT_TYPE, counter, COUNT_HW_TYPE);
         end
         else if (counter <= COUNT_HW_LEN - 1) begin
-          dout <= `SELECT_BYTE(ARP_HW_LEN, counter, COUNT_PROT_TYPE);
+          dout <= `SELECT_BYTE_MSB(ARP_HW_LEN, counter, COUNT_PROT_TYPE);
         end
         else if (counter <= COUNT_PROT_LEN - 1) begin
-          dout <= `SELECT_BYTE(ARP_PROT_LEN, counter, COUNT_HW_LEN);
+          dout <= `SELECT_BYTE_MSB(ARP_PROT_LEN, counter, COUNT_HW_LEN);
         end
         else if (counter <= COUNT_PROT_REPLY - 1) begin
-          dout <= `SELECT_BYTE(ARP_PROT_REPLY, counter, COUNT_PROT_LEN);
+          dout <= `SELECT_BYTE_MSB(ARP_PROT_REPLY, counter, COUNT_PROT_LEN);
         end
         // SHA, as a reply this is our device's HA
         else if (counter <= COUNT_SHA - 1) begin
-          dout <= `SELECT_BYTE(MAC_ADDR, counter, COUNT_PROT_REPLY);
+          dout <= `SELECT_BYTE_MSB(MAC_ADDR, counter, COUNT_PROT_REPLY);
         end
         // SPA, our IP ADDR
         else if (counter <= COUNT_SPA - 1) begin
-          dout <= `SELECT_BYTE(IP_ADDR, counter, COUNT_SHA);
+          dout <= `SELECT_BYTE_MSB(IP_ADDR, counter, COUNT_SHA);
         end
         else if (counter <= COUNT_THA - 1) begin
-          dout <= `SELECT_BYTE(tha, counter, COUNT_SPA);
+          dout <= `SELECT_BYTE_MSB(tha, counter, COUNT_SPA);
         end
         else if (counter <= COUNT_TPA - 1) begin
-          dout <= `SELECT_BYTE(tpa, counter, COUNT_THA);
+          dout <= `SELECT_BYTE_MSB(tpa, counter, COUNT_THA);
         end
         else begin
           dout <= '0;
         end
       end else begin
-        dout <= `SELECT_BYTE(ARP_HW_TYPE, 0, 0);
+        dout <= `SELECT_BYTE_MSB(ARP_HW_TYPE, 1'b0, 0);
         counter <= 1;
       end
 

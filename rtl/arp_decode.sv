@@ -27,25 +27,25 @@ reg op = 0;
       err <= 0;
       done <= 0;
     end else begin
-      working <= {din, working[47:8]};
+      working <= {working[39:0], din};
       done <= 0;
 
       if (counter < 8'd28) counter <= counter + 1;
       case (counter)
       // ARP Hardware Type = 1 = Ethernet
-      8'd2: if (working[47:32] != 1) err <= 1;
+      8'd2: if (working[15:0] != 1) err <= 1;
       // ARP Protocol Type = 0x0800 = IPV4
-      8'd4: if (working[47:32] != 16'h0800) err <= 1;
-      8'd5: if (working[47:40] != 8'd6) err <= 1;
-      8'd6: if (working[47:40] != 8'd4) err <= 1;
+      8'd4: if (working[15:0] != 16'h0800) err <= 1;
+      8'd5: if (working[7:0] != 8'd6) err <= 1;
+      8'd6: if (working[7:0] != 8'd4) err <= 1;
       // Operation 1: Request, Operation 2: Reply. Ignore replies
-      8'd8: if (working[47:32] == 2) err <= 1;
+      8'd8: if (working[15:0] == 2) err <= 1;
       8'd14: sha <= working;
-      8'd18: spa <= working[47:16];
+      8'd18: spa <= working[31:0];
       8'd24: tha <= working;
       8'd28: begin 
         done <= 1;
-        tpa <= working[47:16];
+        tpa <= working[31:0];
       end
       default: begin
       end

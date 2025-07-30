@@ -6,7 +6,7 @@ import logging
 import cocotb
 from cocotb.runner import get_runner
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, FallingEdge
+from cocotb.triggers import RisingEdge
 from cocotbext.eth import GmiiFrame, RgmiiSink
 from cocotb.binary import BinaryValue
 
@@ -72,7 +72,7 @@ async def mac_mii_output(dut):
 
     for test_data in test_frames:
         frame = await tb.sink.recv()
-        copy = MAC_DEST[::-1] + MAC_SRC[::-1] + ETHER_TYPE[::-1] + test_data
+        copy = MAC_DEST + MAC_SRC + ETHER_TYPE + test_data
         assert frame.get_payload() == copy
         assert frame.check_fcs()
         assert frame.error is None
