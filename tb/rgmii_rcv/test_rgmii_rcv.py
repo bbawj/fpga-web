@@ -95,9 +95,9 @@ def arp_payload(op, sha, tha, spa, tpa):
             sha + spa + tha + tpa)
 
 def mac_payload(dest, src, ether_type, payload):
-    dest = dest[::-1]
-    src = src[::-1]
-    ether_type = ether_type[::-1]
+    dest = dest
+    src = src
+    ether_type = ether_type
     return dest + src + ether_type + payload
 
 @pytest.mark.parametrize("speed_100", [True, False])

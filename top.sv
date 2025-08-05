@@ -3,7 +3,9 @@
 `endif
 module top(
     input wire clk_25mhz,
-    input wire rst,
+    input wire button,
+    output wire led,
+    output wire uart_tx,
     // Shared PHY control
     output reg mdc,
     inout wire mdio,
@@ -16,9 +18,22 @@ module top(
     input wire phy0_rxc
 );
 
+wire rst;
+areset _areset(.clk(clk_25mhz), .rst_n(button), .rst(rst));
+
+uart uart_instance(
+  .clk(clk_25mhz),
+  .rst(rst),
+  .valid(1'b1),
+  .rx(8'h97),
+  .rdy(),
+  .tx(uart_tx)
+  );
+
 mac mac_instance(
   .clk(clk_25mhz),
   .rst(rst),
+  .led(led),
 
   .phy_txd(phy0_txd),
   .phy_txctl(phy0_txctl),
