@@ -1,14 +1,22 @@
 [tasks]
 arp_encode
 arp_decode
+uart
+fifo
+mdio
 
 [options]
 arp_encode: mode prove
 arp_decode: mode prove
-depth 5
+uart: mode prove
+fifo: mode prove
+mdio: mode prove
+depth 10
+
+multiclock on
 
 [engines]
-smtbmc
+abc pdr
 
 [script]
 arp_encode: read -formal arp_encode.sv
@@ -19,8 +27,30 @@ arp_decode: read -formal arp_decode.sv
 arp_decode: prep -top arp_decode
 arp_decode: chformal -assert -skip 1
 
+fifo: read -formal fifo.sv
+fifo: prep -top fifo
+fifo: chformal -assert -skip 1
+
+uart: read -sv fifo.sv
+uart: read -sv clk_divider.sv
+uart: read -formal uart.sv
+uart: prep -top uart
+
+mdio: read -sv -formal mdio.sv
+mdio: read -sv clk_divider.sv
+mdio: read -sv -formal clk_gen.sv
+mdio: read -sv synchronizer.sv
+mdio: prep -top mdio
+mdio: flatten
+mdio: tribuf -formal
 
 [files]
+../rtl/fifo.sv
+../rtl/mdio.sv
+../rtl/synchronizer.sv
+../rtl/clk_gen.sv
+../rtl/clk_divider.sv
 ../rtl/arp_decode.sv
 ../rtl/arp_encode.sv
+../rtl/uart.sv
 ../rtl/utils.svh
