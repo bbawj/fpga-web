@@ -38,8 +38,8 @@ always @(posedge clk) begin
   end else begin
     case (state)
       IDLE, PREAMBLE, ABORT: begin
+        crc_next <= 32'hFFFFFFFF;
         crc_err <= '0;
-        crc_next <= '0;
         din <= '0;
       end
       default: begin
@@ -47,13 +47,14 @@ always @(posedge clk) begin
           din <= rxd;
           if (~start_crc_flag) begin
             crc_next <= 32'hFFFFFFFF;
-            start_crc_flag <= 1;
+            start_crc_flag <= 1'b1;
           end else begin
             crc_next <= crc_out;
           end
         // not in IDLE states and RX_DV dropped, verify checksum valid
-        end else if (~crc_out != 32'h2144DF1C) begin
-          crc_err <= 1;
+        end else begin
+          if (~crc_out != 32'h2144DF1C) crc_err <= 1;
+          start_crc_flag <= 1'b0;
         end 
       end
     endcase
