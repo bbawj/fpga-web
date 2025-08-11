@@ -1,3 +1,4 @@
+`default_nettype	none
 module mac ( 
     input wire clk,
     input wire rst,
@@ -6,7 +7,6 @@ module mac (
     // PHY0 MII Interface
     output reg [3:0] phy_txd,
     output reg phy_txctl,
-    output reg phy_txc,
     input wire [3:0] phy_rxd,
     input wire phy_rxctl,
     input wire phy_rxc
@@ -54,7 +54,7 @@ reg [15:0] ethertype = '0;
 mac_encode #(.MAC_ADDR(LOC_MAC_ADDR)) _mac_encode(
   .clk(clk), .rst(rst), .en(mac_encode_en), .mac_payload(mac_payload),
   .mac_dest(mac_dest), .ethertype(ethertype),
-  .send_next(send_next), .phy_txc(phy_txc), .phy_txctl(phy_txctl), .phy_txd(phy_txd)
+  .send_next(send_next), .phy_txctl(phy_txctl), .phy_txd(phy_txd)
 );
 
 reg arp_encode_ovalid;
@@ -131,10 +131,7 @@ arp_decode arp_d(
   .err(arp_err),
   .done(arp_done)
   );
-  assign led = ~arp_done;
 
-reg [47:0] q_arp_tha = '0;
-reg [31:0] q_arp_tpa = '0;
 typedef enum {IDLE, ARP_PENDING, ARP} TX_STATE;
 TX_STATE tx_state = IDLE;
   always @(posedge clk) begin
@@ -154,8 +151,8 @@ TX_STATE tx_state = IDLE;
           end  
         end
         ARP_PENDING: begin
-          if (~rgmii_rcv_busy) begin
-            if (~rgmii_rcv_crc_err) begin
+          if (!rgmii_rcv_busy) begin
+            if (!rgmii_rcv_crc_err) begin
               tx_state <= ARP;
               mac_encode_en <= 1;
             end
@@ -164,7 +161,7 @@ TX_STATE tx_state = IDLE;
         end
         ARP: begin
           // TODO: done signal instead??
-          if (~arp_encode_ovalid) tx_state <= IDLE;
+          if (!arp_encode_ovalid) tx_state <= IDLE;
         end
       endcase
     end

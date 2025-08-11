@@ -13,7 +13,6 @@ module mac_encode #(
   // send_next asserts when the MAC is ready for the next payload
   // callers should read and update mac_phy_txd whenever this is high
   output reg send_next,
-  output reg phy_txc, 
   output reg phy_txctl, 
   output reg [3:0] phy_txd
 );
@@ -21,7 +20,7 @@ module mac_encode #(
 reg mac_phy_txen;
 reg [7:0] mac_phy_txd;
 rgmii_tx _rgmii_tx(.clk(clk), .rst(rst), .mac_phy_txen(mac_phy_txen), 
-  .mac_phy_txd(mac_phy_txd), .phy_txc(phy_txc), .phy_txctl(phy_txctl),
+  .mac_phy_txd(mac_phy_txd), .phy_txctl(phy_txctl),
   .phy_txd(phy_txd));
 
 typedef enum {IDLE, PREAMBLE, SFD, DEST, SOURCE, TYPE, PAYLOAD, PAD, FCS, IPG} MAC_STATE;

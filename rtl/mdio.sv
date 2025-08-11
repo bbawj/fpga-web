@@ -6,17 +6,11 @@ module mdio(
   input wire [4:0] regad,
   input wire [15:0] regdata,
 
-  output wire mdc,
+  input wire mdc,
   output mdio,
 
   output reg valid,
-  output reg [15:0] data
-  );
-
-clk_gen #(.CLKI_DIV(10)) _clk_gen(
-  .clk_in(clk),
-  .clk_out(mdc),
-  .clk_locked()
+  output reg [15:0] o_data
   );
 
   localparam READ = 1'b0;
@@ -95,7 +89,7 @@ always @(posedge mdc) begin
   end 
   else if (counter <= 8'd64) begin
     direction <= op == READ ? IN : OUT;
-    if (op == READ) data <= {data[14:0], mdio};
+    if (op == READ) o_data <= {o_data[14:0], mdio};
     else out <= regdata[64-counter];
   end else begin
     direction <= IN;
