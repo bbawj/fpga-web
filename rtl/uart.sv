@@ -1,3 +1,4 @@
+`default_nettype	none
 module uart #(
   parameter [2:0] BAUD_RATE = '0
 )(
@@ -18,7 +19,11 @@ fifo _fifo (.clk(clk), .rst(rst), .wr_en(valid), .din(rx), .full(fifo_full),
 typedef enum {IDLE, START, DATA, STOP} UART_STATE;
 UART_STATE uart_state = IDLE;
 
+`ifdef SPEED_100M
 localparam CLOCKS_PER_BAUD = 25_000_000 / 9600;
+`else
+localparam CLOCKS_PER_BAUD = 125_000_000 / 9600;
+`endif
 reg [31:0] counter = CLOCKS_PER_BAUD;
 always @(posedge clk) begin
   if (rst || counter == 0) counter <= CLOCKS_PER_BAUD - 1;
