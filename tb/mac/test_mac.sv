@@ -20,7 +20,7 @@ mac mac_instance(
 
   .phy_rxd(phy_rxd),
   .phy_rxctl(phy_rxctl),
-  .phy_rxc(phy_rxc),
+  .phy_rxc(phy_rxc)
   );
 
 endmodule

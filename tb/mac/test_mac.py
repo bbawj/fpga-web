@@ -77,10 +77,27 @@ async def arp_reply(dut):
     tpa = bytes.fromhex("69696969")
     spa = bytes.fromhex("c0a84564")
 
+    test_data = bytes.fromhex("deadbeefcafeb025aa3306fe08060001080006040001b025aa3306fec0a84564DEADBEEFCAFE6969696900000000000000000000000000000000")
     for i in range(2):
-        test_data = bytes.fromhex("deadbeefcafeb025aa3306fe08060001080006040001b025aa3306fec0a84564DEADBEEFCAFE6969696900000000000000000000000000000000")
 
         #test_data = mac_payload(tha, sha, ether_type, arp_payload(op, sha, tha, spa, tpa))
+        test_frame = GmiiFrame.from_payload(test_data)
+        await tb.rgmii_phy.rx.send(test_frame)
+
+        reply_op = bytes.fromhex("0002")
+        expected_data = mac_payload(sha, tha, ether_type, arp_payload(reply_op, tha, sha, tpa, spa))
+        rx_frame = await with_timeout(tb.rgmii_phy.tx.recv(), 50000, "ns")
+        assert rx_frame.get_payload() == expected_data
+        assert rx_frame.check_fcs()
+        assert rx_frame.error is None
+
+    # ethertype set to 0x86dd
+    bad_data = bytes.fromhex("deadbeefcafeb025aa3306fe86dd0001080006040001b025aa3306fec0a84564DEADBEEFCAFE6969696900000000000000000000000000000000")
+    test_frame = GmiiFrame.from_payload(bad_data)
+    await tb.rgmii_phy.rx.send(test_frame)
+    await tb.rgmii_phy.rx.wait()
+    for i in range(2):
+
         test_frame = GmiiFrame.from_payload(test_data)
         await tb.rgmii_phy.rx.send(test_frame)
 

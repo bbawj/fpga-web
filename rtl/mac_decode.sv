@@ -41,6 +41,7 @@ always @(posedge clk) begin
         crc_next <= 32'hFFFFFFFF;
         crc_err <= '0;
         din <= '0;
+        start_crc_flag <= 1'b0;
       end
       default: begin
         if (rx_dv) begin
