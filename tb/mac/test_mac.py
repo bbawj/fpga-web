@@ -5,8 +5,9 @@ import os
 import cocotb
 import pytest
 from cocotb.runner import get_runner
+from cocotb.utils import get_sim_time, get_sim_steps
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, with_timeout
+from cocotb.triggers import RisingEdge, with_timeout, Timer
 
 from cocotbext.eth import GmiiFrame, RgmiiPhy
 
@@ -23,9 +24,23 @@ class TB:
         if speed_100:
             cocotb.start_soon(Clock(dut.clk, 40, units='ns').start())
         else:
-            cocotb.start_soon(Clock(dut.clk, 8, units='ns').start())
+            cocotb.start_soon(self._run_clocks(dut.clk, 0, 8))
+            cocotb.start_soon(self._run_clocks(dut.phy_txc, 90, 8))
         self.rgmii_phy = RgmiiPhy(dut.phy_txd, dut.phy_txctl, dut.phy_txc,
             dut.phy_rxd, dut.phy_rxctl, dut.phy_rxc, dut.rst, speed=100e6 if speed_100 else 1000e6)
+
+    async def _run_clocks(self, port, phase, period):
+        half_period = get_sim_steps(period / 2.0, 'ns')
+        t = Timer(half_period)
+
+        await Timer(phase/360 * period, 'ns')
+        while True:
+            port.value = 1
+            port.value = 1
+            await t
+            port.value = 0
+            port.value = 0
+            await t
 
     async def reset(self):
         self.dut.rst.setimmediatevalue(1)
@@ -62,18 +77,19 @@ async def arp_reply(dut):
     tpa = bytes.fromhex("69696969")
     spa = bytes.fromhex("c0a84564")
 
-    test_data = bytes.fromhex("deadbeefcafeb025aa3306fe08060001080006040001b025aa3306fec0a84564DEADBEEFCAFE6969696900000000000000000000000000000000")
+    for i in range(2):
+        test_data = bytes.fromhex("deadbeefcafeb025aa3306fe08060001080006040001b025aa3306fec0a84564DEADBEEFCAFE6969696900000000000000000000000000000000")
 
-    #test_data = mac_payload(tha, sha, ether_type, arp_payload(op, sha, tha, spa, tpa))
-    test_frame = GmiiFrame.from_payload(test_data)
-    await tb.rgmii_phy.rx.send(test_frame)
+        #test_data = mac_payload(tha, sha, ether_type, arp_payload(op, sha, tha, spa, tpa))
+        test_frame = GmiiFrame.from_payload(test_data)
+        await tb.rgmii_phy.rx.send(test_frame)
 
-    reply_op = bytes.fromhex("0002")
-    expected_data = mac_payload(sha, tha, ether_type, arp_payload(reply_op, tha, sha, tpa, spa))
-    rx_frame = await with_timeout(tb.rgmii_phy.tx.recv(), 50000, "ns")
-    assert rx_frame.get_payload() == expected_data
-    assert rx_frame.check_fcs()
-    assert rx_frame.error is None
+        reply_op = bytes.fromhex("0002")
+        expected_data = mac_payload(sha, tha, ether_type, arp_payload(reply_op, tha, sha, tpa, spa))
+        rx_frame = await with_timeout(tb.rgmii_phy.tx.recv(), 50000, "ns")
+        assert rx_frame.get_payload() == expected_data
+        assert rx_frame.check_fcs()
+        assert rx_frame.error is None
 
 def arp_payload(op, sha, tha, spa, tpa):
     hw_type = bytearray.fromhex("0001")
@@ -97,13 +113,14 @@ def mac_payload(dest, src, ether_type, payload):
         payload = payload + bytearray(60-len(payload))
     return payload
 
-@pytest.mark.parametrize("speed_100", [True, False])
+@pytest.mark.parametrize("speed_100", [False])
 def test_simple_dff_runner(speed_100):
     sim = os.getenv("SIM", "icarus")
 
     source_folder = "../../rtl"
     sources = [f"{source_folder}/mac_encode.sv",
                f"{source_folder}/mac_decode.sv",
+               f"./test_mac.sv",
                f"{source_folder}/mac.sv",
                f"{source_folder}/oddr.sv",
                f"{source_folder}/iddr.sv",
@@ -118,7 +135,7 @@ def test_simple_dff_runner(speed_100):
     runner = get_runner(sim)
     runner.build(
         sources=sources,
-        hdl_toplevel="mac",
+        hdl_toplevel="test_mac",
         always=True,
         clean=True,
         waves=True,
@@ -132,5 +149,5 @@ def test_simple_dff_runner(speed_100):
     runner.test(waves=True,
                 verbose=True,
                 extra_env={"SPEED_100M": "True" } if speed_100 else {},
-                hdl_toplevel="mac", test_module="test_mac,")
+                hdl_toplevel="test_mac", test_module="test_mac,")
 

@@ -78,6 +78,8 @@ async def arp_decode(dut):
 
     op = bytes.fromhex("0001")
     sha = bytearray.fromhex(LP_MAC_ADDR)
+    # in a request the THA is actually ignored (blank) since the point of ARP is to figure out
+    # the MAC owner of the IP address
     tha = bytearray.fromhex(LOC_MAC_ADDR)
     tpa = bytearray.fromhex("69696969")
     spa = bytearray.fromhex("ABCDEF12")

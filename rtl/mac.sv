@@ -142,7 +142,7 @@ TX_STATE tx_state = IDLE;
         IDLE: begin
           mac_encode_en <= 0;
           ethertype <= '0;
-          if (arp_done && arp_tha == LOC_MAC_ADDR) begin
+          if (arp_done && arp_tpa == LOC_IP_ADDR) begin
             mac_dest <= mac_sa;
             tx_state <= ARP_PENDING;
             arp_encode_tha <= arp_sha;
