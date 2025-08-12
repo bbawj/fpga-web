@@ -17,6 +17,11 @@ flash: $(MODULE).svf
 	$(LOADER) -f colorlight.cfg -c "svf -quiet -progress $@; exit"
 
 
+.PHONY: clean
 clean:
 	rm *.bit
 	rm *.svf
+
+.PHONY: arp
+arp:
+	sudo arping -c 1 -i enp61s0 -t DE:AD:BE:EF:CA:FE -S 192.168.69.100 105.105.105.105

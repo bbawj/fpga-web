@@ -107,13 +107,20 @@ mac_decode #(.MAC_ADDR(LOC_MAC_ADDR)) _mac_decode (
   );
 
 reg ip_err;
-reg ip_dout_ready;
-reg [3:0] ip_dout;
-// ip_decode ip_decoder(.valid(ip_valid), .clk(clk), .din(phy_rxd), 
-//   .err(ip_err), 
-//   .dout_ready(ip_dout_ready),
-//   .dout(ip_dout)
-//   );
+reg ip_done;
+reg [31:0] ip_sa;
+reg [31:0] ip_da;
+ip_decode ip_decoder(
+  .clk(rxc),
+  .rst(rst),
+  .valid(ip_valid),
+  .din(rxd),
+
+  .sa(ip_sa),
+  .da(ip_da),
+  .err(ip_err), 
+  .done(ip_done)
+  );
 
 reg arp_err;
 reg arp_done;
