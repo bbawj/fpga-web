@@ -98,8 +98,9 @@ always @(posedge clk) begin
           da <= { da[39:0], rxd };
           if (counter == 16'd5) begin 
             counter <= '0;
-            // ABORT if we are not the intended receiver
-            if ({ da[39:0], rxd } == MAC_ADDR) state <= SOURCE;
+            // ABORT if we are not the intended receiver or if not a broadcast
+            if ({da[39:0], rxd} == MAC_ADDR || {da[39:0], rxd} == 48'hFFFFFFFFFFFF)
+              state <= SOURCE;
             else state <= ABORT;
           end else begin
             counter <= counter + 1;
