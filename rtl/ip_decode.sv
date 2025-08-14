@@ -1,4 +1,8 @@
 `default_nettype	none
+/*
+* Strips out the IPV4 header and reports done, otherwise err is raised if the
+* header is malformed.
+*/
 module ip_decode (
   input wire clk,
   input wire rst,
@@ -45,9 +49,12 @@ reg [7:0] ihl = '0;
       // Header Checksum
       8'd12: if (~checksum != working[15:0]) err <= 1;
       8'd16: sa <= working;
-      8'd20: da <= working;
+      8'd20: begin
+        da <= working;
+        done <= 1;
+      end
       default: begin
-        if (counter == ihl - 1) done <= 1;
+        // NO OP, wait for valid de-assert
       end
       endcase
     end
