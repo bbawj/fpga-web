@@ -1,6 +1,5 @@
 `default_nettype	none
-module ip_decode(
-  )(
+module ip_decode (
   input wire clk,
   input wire rst,
   input valid,
@@ -53,13 +52,16 @@ reg [7:0] ihl = '0;
       endcase
     end
   end
-endmodule
 
 function automatic logic [15:0] crc_calc(logic [15:0] checksum, logic [15:0] data);
-  integer one_complement = ~data;
-  integer sum = one_complement + checksum[15:0];
+  integer one_complement;
+  one_complement = ~data;
+  integer sum;
+  sum = one_complement + checksum[15:0];
   if (sum[16])
     crc_calc = sum[15:0] + 1;
   else
     crc_calc = sum[15:0];
 endfunction
+
+endmodule

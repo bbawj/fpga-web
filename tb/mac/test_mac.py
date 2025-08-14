@@ -141,6 +141,7 @@ def test_simple_dff_runner(speed_100):
                f"{source_folder}/mac.sv",
                f"{source_folder}/oddr.sv",
                f"{source_folder}/iddr.sv",
+               f"{source_folder}/ip_decode.sv",
                f"{source_folder}/arp_decode.sv",
                f"{source_folder}/arp_encode.sv",
                f"{source_folder}/rgmii_rcv.sv",

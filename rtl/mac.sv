@@ -1,8 +1,11 @@
 `default_nettype	none
+`include "utils.svh"
+
 module mac ( 
     input wire clk,
     input wire rst,
     output wire led,
+    output wire uart_tx,
     
     // PHY0 MII Interface
     output reg [3:0] phy_txd,
@@ -139,17 +142,33 @@ arp_decode arp_d(
   .done(arp_done)
   );
 
+`ifdef DEBUG
+reg uart_valid = '0;
+reg [7:0] uart_data = '0;
+uart _uart(
+  .clk(clk),
+  .rst(rst),
+  .valid(uart_valid),
+  .rx(uart_data),
+  .rdy(),
+  .tx(uart_tx)
+  );
+`endif
+
 typedef enum {IDLE, ARP_PENDING, ARP} TX_STATE;
 TX_STATE tx_state = IDLE;
   always @(posedge clk) begin
     if (rst) begin
       tx_state <= IDLE;
+      `LOG_END;
     end else begin
       case (tx_state)
         IDLE: begin
+          `LOG_END;
           mac_encode_en <= 0;
           ethertype <= '0;
           if (arp_done && arp_tpa == LOC_IP_ADDR) begin
+            `LOG(tx_state);
             mac_dest <= mac_sa;
             tx_state <= ARP_PENDING;
             arp_encode_tha <= arp_sha;
@@ -158,6 +177,7 @@ TX_STATE tx_state = IDLE;
           end  
         end
         ARP_PENDING: begin
+          `LOG(tx_state);
           if (!rgmii_rcv_busy) begin
             if (!rgmii_rcv_crc_err) begin
               tx_state <= ARP;
@@ -167,6 +187,7 @@ TX_STATE tx_state = IDLE;
           end
         end
         ARP: begin
+          `LOG(tx_state);
           // TODO: done signal instead??
           if (!arp_encode_ovalid) tx_state <= IDLE;
         end

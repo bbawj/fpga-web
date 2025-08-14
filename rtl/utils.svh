@@ -22,4 +22,20 @@
   data[$bits(data) - 8*(end_count - start_count) - 1 -: 8]
 `endif
 
+`ifdef DEBUG
+`define LOG(signal) \
+begin\
+  uart_valid <= 1'b1;\
+  uart_data <= (signal);\
+end
+
+`define LOG_END \
+begin\
+  uart_valid <= 1'b0;\
+end
+`else
+  `define LOG(signal) begin end
+  `define LOG_END begin end
+`endif
+
 `endif

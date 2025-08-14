@@ -54,6 +54,7 @@ mac mac_instance(
   .clk(sysclk),
   .rst(rst),
   .led(),
+  .uart_tx(uart_tx),
 
   .phy_txd(phy0_txd),
   .phy_txctl(phy0_txctl),
