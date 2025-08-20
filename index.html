@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebTransport Demo</title>
+    <style>
+        body {
+            font-family: monospace;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        .controls {
+            margin-bottom: 20px;
+        }
+        input, button {
+            padding: 8px 12px;
+            margin: 5px;
+            background: #2d2d30;
+            color: #d4d4d4;
+            border: 1px solid #444;
+            border-radius: 4px;
+        }
+        button {
+            cursor: pointer;
+        }
+        button:hover {
+            background: #3c3c3c;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background: #0e4429;
+            color: #4ac26b;
+        }
+        .status.disconnected {
+            background: #4a1e1e;
+            color: #f85149;
+        }
+        .status.connecting {
+            background: #3d2914;
+            color: #f0b90b;
+        }
+        .log {
+            background: #252526;
+            padding: 15px;
+            border-radius: 4px;
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #444;
+        }
+        .log-entry {
+            margin: 2px 0;
+            font-size: 14px;
+        }
+        .log-entry.error {
+            color: #f85149;
+        }
+        .log-entry.info {
+            color: #58a6ff;
+        }
+        .log-entry.success {
+            color: #4ac26b;
+        }
+    </style>
+</head>
+<body>
+    <h1>WebTransport Connection Demo</h1>
+    
+    <div class="controls">
+        <input type="text" id="urlInput" placeholder="wss://echo.websocket.org" value="https://echo.websocket.org/">
+        <button id="connectBtn">Connect</button>
+        <button id="disconnectBtn" disabled>Disconnect</button>
+    </div>
+
+    <div class="controls">
+        <input type="text" id="messageInput" placeholder="Enter message to send">
+        <button id="sendBtn" disabled>Send Message</button>
+    </div>
+
+    <div id="status" class="status disconnected">Disconnected</div>
+
+    <div class="log" id="log">
+        <div class="log-entry info">WebTransport demo ready. Enter a URL and click Connect.</div>
+    </div>
+
+    <script>
+        let transport = null;
+        let writer = null;
+        let reader = null;
+
+        const urlInput = document.getElementById('urlInput');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const status = document.getElementById('status');
+        const log = document.getElementById('log');
+
+        function addLog(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateStatus(state, message) {
+            status.className = `status ${state}`;
+            status.textContent = message;
+        }
+
+        async function connect() {
+            if (!('WebTransport' in window)) {
+                addLog('WebTransport not supported in this browser', 'error');
+                return;
+            }
+
+            const url = urlInput.value.trim();
+            if (!url) {
+                addLog('Please enter a URL', 'error');
+                return;
+            }
+
+            try {
+                updateStatus('connecting', 'Connecting...');
+                addLog(`Attempting to connect to: ${url}`);
+                
+                transport = new WebTransport(url);
+                
+                await transport.ready;
+                addLog('WebTransport connection established', 'success');
+                updateStatus('connected', 'Connected');
+                
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                sendBtn.disabled = false;
+
+                // Handle incoming streams
+                handleIncomingStreams();
+                
+                // Handle connection close
+                transport.closed.then(() => {
+                    addLog('Connection closed', 'info');
+                    updateStatus('disconnected', 'Disconnected');
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                    sendBtn.disabled = true;
+                }).catch(error => {
+                    addLog(`Connection error: ${error.message}`, 'error');
+                });
+
+            } catch (error) {
+                addLog(`Connection failed: ${error.message}`, 'error');
+                updateStatus('disconnected', 'Connection failed');
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                sendBtn.disabled = true;
+            }
+        }
+
+        async function disconnect() {
+            if (transport) {
+                transport.close();
+                transport = null;
+                writer = null;
+                reader = null;
+            }
+        }
+
+        async function handleIncomingStreams() {
+            if (!transport) return;
+
+            try {
+                const streamReader = transport.incomingUnidirectionalStreams.getReader();
+                
+                while (true) {
+                    const { value: stream, done } = await streamReader.read();
+                    if (done) break;
+                    
+                    addLog('Received incoming unidirectional stream');
+                    readStream(stream);
+                }
+            } catch (error) {
+                addLog(`Error handling incoming streams: ${error.message}`, 'error');
+            }
+        }
+
+        async function readStream(stream) {
+            const reader = stream.getReader();
+            
+            try {
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    
+                    const message = new TextDecoder().decode(value);
+                    addLog(`Received: ${message}`, 'success');
+                }
+            } catch (error) {
+                addLog(`Error reading stream: ${error.message}`, 'error');
+            } finally {
+                reader.releaseLock();
+            }
+        }
+
+        async function sendMessage() {
+            if (!transport) return;
+
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            try {
+                // Create a unidirectional stream
+                const stream = await transport.createUnidirectionalStream();
+                const writer = stream.getWriter();
+                
+                const encoder = new TextEncoder();
+                await writer.write(encoder.encode(message));
+                await writer.close();
+                
+                addLog(`Sent: ${message}`, 'info');
+                messageInput.value = '';
+                
+            } catch (error) {
+                addLog(`Failed to send message: ${error.message}`, 'error');
+            }
+        }
+
+        // Event listeners
+        connectBtn.addEventListener('click', connect);
+        disconnectBtn.addEventListener('click', disconnect);
+        sendBtn.addEventListener('click', sendMessage);
+        
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !sendBtn.disabled) {
+                sendMessage();
+            }
+        });
+
+        // Check WebTransport support on load
+        if (!('WebTransport' in window)) {
+            addLog('WebTransport is not supported in this browser', 'error');
+            addLog('Requires Chrome 97+ with HTTPS or localhost', 'info');
+            connectBtn.disabled = true;
+        }
+    </script>
+</body>
+</html>
