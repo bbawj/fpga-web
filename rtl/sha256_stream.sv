@@ -63,8 +63,8 @@ module sha256_stream
      (.clk     (clk),
       .reset_n (~rst),
 
-      .init(s_tvalid_i & first_block),
-      .next(s_tvalid_i & !first_block),
+      .init(s_tvalid_i & s_tlast_i),
+      .next(s_tvalid_i & !s_tlast_i),
       .mode (mode),
 
       .block(s_tdata_i),
