@@ -79,8 +79,8 @@ async def stream_double(dut):
 
     await RisingEdge(tb.dut.digest_valid_o)
     data = build_block(NIST_2_2)
-    dut.s_tdata_i.setimmediatevalue(data)
-    dut.s_tlast_i.setimmediatevalue(0)
+    dut.s_tdata_i.value = data
+    dut.s_tlast_i.value = 0
     await RisingEdge(tb.dut.digest_valid_o)
     await RisingEdge(tb.dut.clk)
     assert tb.dut.digest_o.value.buff == m.digest()
