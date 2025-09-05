@@ -51,7 +51,7 @@ async def stream_single(dut):
 
     await RisingEdge(tb.dut.s_tready_o)
     dut.s_tvalid_i.value = 1
-    dut.s_tlast_i.value = 1
+    dut.s_tfirst_i.value = 1
     data = build_block(tv)
     dut.s_tdata_i.setimmediatevalue(data)
     print(data.buff)
@@ -71,7 +71,7 @@ async def stream_double(dut):
 
     await RisingEdge(tb.dut.s_tready_o)
     dut.s_tvalid_i.value = 1
-    dut.s_tlast_i.value = 1
+    dut.s_tfirst_i.value = 1
     data = build_block(NIST_2_1)
     dut.s_tdata_i.value = data
     print(data.buff)
@@ -80,7 +80,7 @@ async def stream_double(dut):
     await RisingEdge(tb.dut.digest_valid_o)
     data = build_block(NIST_2_2)
     dut.s_tdata_i.value = data
-    dut.s_tlast_i.value = 0
+    dut.s_tfirst_i.value = 0
     await RisingEdge(tb.dut.digest_valid_o)
     await RisingEdge(tb.dut.clk)
     assert tb.dut.digest_o.value.buff == m.digest()
