@@ -23,6 +23,7 @@ class TB:
         await RisingEdge(self.dut.clk)
         await RisingEdge(self.dut.clk)
         self.dut.rst.value = 0
+        self.dut.valid.value = 0
 
 
 
@@ -32,26 +33,10 @@ async def stream(dut):
 
     await tb.reset()
 
-
-    # await RisingEdge(tb.dut.s_tready_o)
     await RisingEdge(tb.dut.clk)
     dut.valid.value = 1
     dut.is_last_message.value = 1
     key = build_key(bytearray.fromhex("0b" * 20 + 44*"00"))
-    m = hashlib.sha256()
-    ipad = bytes.fromhex("36" * 64)
-    opad = bytes.fromhex("5C" * 64)
-    key_to_hash = bytes(x ^ y for x, y in zip(bytes(key), ipad))
-    m.update(key_to_hash + b"abc")
-    print(key)
-    print(key_to_hash)
-    first_stage = m.digest()
-    print(first_stage)
-    m = hashlib.sha256()
-    key_to_hash = bytes(x ^ y for x, y in zip(bytes(key), opad))
-    print(key_to_hash)
-    m.update(key_to_hash + first_stage)
-    print(m.digest())
     dut.K.value = BinaryValue(value=bytes(key), n_bits=512)
     dut.message.value = build_block_single()
     dut.message_length.value = 0x18
@@ -59,8 +44,28 @@ async def stream(dut):
 
     await RisingEdge(tb.dut.hmac_valid)
     assert tb.dut.digest.value.buff == m.digest()
+
+
+@cocotb.test()
+async def stream_large(dut):
+    tb = TB(dut)
+
+    await tb.reset()
+
+    await RisingEdge(tb.dut.clk)
+    dut.valid.value = 1
+    dut.is_last_message.value = 1
+    key = build_key(bytearray.fromhex("aa" * 20 + 44*"00"))
+    dut.K.value = BinaryValue(value=bytes(key), n_bits=512)
+    dut.message.value = BinaryValue(bytes.fromhex("dd" * 50 + 14 * "00"), n_bits=512)
+    dut.message_length.value = 400
+    m = hmac.new(key, bytes.fromhex(50 * "dd"), hashlib.sha256)
+
+    await RisingEdge(tb.dut.hmac_valid)
+    assert tb.dut.digest.value.buff == m.digest()
     # await RisingEdge(tb.dut.clk)
     # assert tb.dut.digest.value.buff == m.digest()
+
 
 def build_key(key):
     if len(key) < 64:

@@ -23,6 +23,7 @@ module hmac_sha256 (
 
   reg is_first_sha = '0;
   reg [63:0] accum_length = '0;
+  reg [511:0] extra = '0;
   reg [511:0] next = '0;
   reg sha_valid_i = '0;
   reg [511:0] sha_in = '0;
@@ -37,13 +38,15 @@ module hmac_sha256 (
    .digest_o(sha_digest),
    .digest_valid_o(sha_digest_valid));
 
-   typedef enum {IDLE, STALL0, INNER, STALL1, STALL2, STALL3, OUTER, STALL4, DONE} STATE;
+   typedef enum {IDLE, STALL0, INNER, INNER_PAD_STALL, INNER_PAD, STALL1,
+     STALL2, STALL3, OUTER, STALL4, DONE} STATE;
    STATE state = IDLE;
    always @(posedge clk) begin
      if (rst) begin
        sha_valid_i <= 1'b0;
        is_first_sha <= 1'b0;
        hmac_valid <= 1'b0;
+       state <= IDLE;
      end else begin
        case (state)
          IDLE: begin
@@ -75,11 +78,17 @@ module hmac_sha256 (
                accum_length <= accum_length + message_length;
                state <= STALL0;
              end else begin
-               pad(message, message_length, sha_in);
+               pad(message, message_length, STALL1, INNER_PAD_STALL, state, sha_in, next);
                accum_length <= '0;
-               state <= STALL1;
              end
            end
+         end
+         INNER_PAD_STALL: begin
+           if (!hmac_ready) state <= INNER_PAD;
+         end
+         INNER_PAD: begin
+           sha_in <= next;
+           state <= STALL1;
          end
          STALL1: begin
            sha_valid_i <= 1'b1;
@@ -97,8 +106,7 @@ module hmac_sha256 (
              sha_valid_i <= 1'b1;
              is_first_sha <= 1'b1;
              sha_in <= K ^ opad;
-             pad({sha_digest, 256'h0}, 256, next);
-             state <= STALL3;
+             pad({sha_digest, 256'h0}, 256, STALL3, STALL3, state, next, extra);
            end
          end
          STALL3: begin
@@ -131,17 +139,23 @@ module hmac_sha256 (
    end
 
    // padding only needs to be done on the last message, where the additonal
-   // bit is added. for HMAC use case, padding the last message will always
-   // require a final block of 0s plus the length bits as the length is always
-   // larger than 512 due to the 512 bit key
-   task pad (input [511:0] in, input [63:0] length, output [511:0] out1);
-     reg [63:0] message_length_with_key;
-     out1 = in;
-     // out2 = 512'd0;
-     if (length < 64'd512) out1[511-length] = 1'b1;
-     // else out2[511] = 1'b1;
-     if (length + 64 + 1 <= 512) out1[63:0] = 64'd512 + length;
-     // else out2[63:0] = message_length_with_key;
+   // bit is added. for HMAC use case, the length is always adds 512 due to
+   // the 512 bit key
+   task pad (input [511:0] in, input [63:0] length, input STATE state_no_extra_pad,
+     input STATE state_extra_pad, output STATE next_state, output [511:0] out, output [511:0] extra);
+     out = in;
+     if (length > 512 - 64 - 1) begin
+       extra = 512'd0;
+       next_state = state_extra_pad;
+     end else begin
+       extra = in;
+       next_state = state_no_extra_pad;
+     end
+
+     if (length < 64'd512) out[511-length] = 1'b1;
+     else extra[511] = 1'b1;
+     if (length + 64 + 1 <= 512) out[63:0] = 64'd512 + length;
+     else extra[63:0] = 64'd512 + length;
    endtask
 
 endmodule
