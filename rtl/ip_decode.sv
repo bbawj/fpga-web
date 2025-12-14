@@ -18,6 +18,7 @@ reg [31:0] working = '0;
 reg [7:0] counter = '0;
 reg [15:0] packet_size = '0;
 reg [15:0] checksum = '0;
+reg [15:0] working_checksum = '0;
 reg [7:0] ihl = '0;
 
   always @(posedge clk) begin
@@ -28,7 +29,7 @@ reg [7:0] ihl = '0;
       done <= 0;
     end else if (!err) begin
       if (counter != '0 && !counter[0]) 
-        checksum <= crc_calc(checksum, working[15:0]);
+        working_checksum <= ones_comp(working_checksum, working[15:0]);
 
       working <= {working[23:0], din};
       done <= 0;
@@ -44,14 +45,16 @@ reg [7:0] ihl = '0;
       end
       // Total length
       8'd4: packet_size <= working[15:0];
+      // Protocol: 6 = TCP
       // Protocol: 17 = UDP
-      8'd10: if (working[15:0] != 16'd17) err <= 1;
+      8'd10: if (working[7:0] != 8'd6) err <= 1;
       // Header Checksum
-      8'd12: if (~checksum != working[15:0]) err <= 1;
+      8'd12: checksum <= working[15:0];
       8'd16: sa <= working;
       8'd20: begin
         da <= working;
         done <= 1;
+        err <= ~ones_comp(working_checksum, working) != '0;
       end
       default: begin
         // NO OP, wait for valid de-assert
@@ -60,15 +63,14 @@ reg [7:0] ihl = '0;
     end
   end
 
-function automatic logic [15:0] crc_calc(logic [15:0] checksum, logic [15:0] data);
-  integer one_complement;
-  one_complement = ~data;
-  integer sum;
-  sum = one_complement + checksum[15:0];
-  if (sum[16])
-    crc_calc = sum[15:0] + 1;
+function automatic logic [15:0] ones_comp(logic [15:0] checksum, logic [15:0] data);
+  reg [16:0] sum = 0;
+  reg [15:0] temp = ~data;
+  sum = temp + checksum;
+  if (sum[16] == 1'b1)
+    ones_comp = sum[15:0] + 1;
   else
-    crc_calc = sum[15:0];
+    ones_comp = sum[15:0];
 endfunction
 
 endmodule
