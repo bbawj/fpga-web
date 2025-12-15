@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-import itertools
 import logging
 import pytest
 
@@ -9,7 +8,7 @@ import socket
 from scapy.all import IP
 from cocotb.runner import get_runner
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, FallingEdge
+from cocotb.triggers import RisingEdge
 from cocotb.binary import BinaryValue
 
 LOC_MAC_ADDR = "DEADBEEFCAFE"
@@ -67,6 +66,24 @@ async def ip_decode(dut):
     await RisingEdge(tb.dut.clk)
     await RisingEdge(tb.dut.clk)
 
+@cocotb.test()
+async def ip_encode(dut):
+    packet = IP(proto=6, flags=["DF"])
+    b = bytes(packet)
+    tb = TB(dut)
+    await tb.reset(tb.dut.encode_rst)
+    tb.dut.encode_en.value = 1
+    tb.dut.encode_sa.value = int.from_bytes(b[12:16])
+    tb.dut.encode_da.value = int.from_bytes(b[16:20])
+    tb.dut.encode_len.value = int.from_bytes(b[2:4])
+    out = bytearray()
+    await RisingEdge(tb.dut.clk)
+    while tb.dut.encode_valid.value == 0:
+        await RisingEdge(tb.dut.clk)
+        out.append(tb.dut.encode_dout.value.integer)
+
+    assert bytes(out) == b
+
 
 @pytest.mark.parametrize("speed_100", [True, False])
 def test_simple_dff_runner(speed_100):
@@ -76,6 +93,7 @@ def test_simple_dff_runner(speed_100):
 
     source_folder = "../../rtl"
     sources = [f"{source_folder}/ip_decode.sv",
+               f"{source_folder}/ip_encode.sv",
                "test_ip.sv"]
 
     runner = get_runner(sim)
