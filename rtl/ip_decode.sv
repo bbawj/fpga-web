@@ -1,4 +1,5 @@
 `default_nettype	none
+`include "utils.svh"
 /*
 * Strips out the IPV4 header and reports done, otherwise err is raised if the
 * header is malformed.
@@ -62,15 +63,5 @@ reg [7:0] ihl = '0;
       endcase
     end
   end
-
-function automatic logic [15:0] ones_comp(logic [15:0] checksum, logic [15:0] data);
-  reg [16:0] sum = 0;
-  reg [15:0] temp = ~data;
-  sum = temp + checksum;
-  if (sum[16] == 1'b1)
-    ones_comp = sum[15:0] + 1;
-  else
-    ones_comp = sum[15:0];
-endfunction
 
 endmodule
