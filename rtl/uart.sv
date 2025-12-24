@@ -1,19 +1,20 @@
 `default_nettype	none
 module uart #(
+  parameter DATA_WIDTH = 8,
   parameter [2:0] BAUD_RATE = '0
 )(
   input wire clk,
   input wire rst,
   input wire valid,
-  input wire [7:0] rx,
+  input wire [DATA_WIDTH-1:0] rx,
   output wire rdy,
   output wire tx
 );
 
 reg fifo_rd_en = 0;
 wire fifo_empty, fifo_full;
-reg [7:0] fifo_dout;
-fifo _fifo (.clk(clk), .rst(rst), .wr_en(valid), .din(rx), .full(fifo_full),
+reg [DATA_WIDTH - 1:0] fifo_dout;
+fifo #(.DATA_WIDTH(DATA_WIDTH)) _fifo (.clk(clk), .rst(rst), .wr_en(valid), .din(rx), .full(fifo_full),
   .rd_en(fifo_rd_en), .dout(fifo_dout), .empty(fifo_empty), .count());
 
 typedef enum {IDLE, START, DATA, STOP} UART_STATE;
@@ -31,6 +32,7 @@ always @(posedge clk) begin
 end
 
 reg [2:0] bit_counter = '0;
+reg [7:0] byte_counter = '0;
 reg [8:0] shift_dout = '1;
 assign tx = shift_dout[0];
 
@@ -54,7 +56,7 @@ always @(posedge clk) begin
         fifo_rd_en <= 0;
         if (counter == 0) begin
           uart_state <= DATA;
-          shift_dout <= {1'b1, fifo_dout};
+          shift_dout <= {1'b1, fifo_dout[(byte_counter+1)*8 - 1 -: 8]};
         end
       end
       DATA: begin
@@ -65,6 +67,7 @@ always @(posedge clk) begin
           if (bit_counter == 3'd7) begin
             uart_state <= STOP;
             shift_dout <= '1;
+            byte_counter <= byte_counter + 'b1;
           end
         end
       end
@@ -72,12 +75,19 @@ always @(posedge clk) begin
       STOP: begin
         fifo_rd_en <= 0;
         if (counter == 0) begin
-          if (fifo_empty) begin
-            uart_state <= IDLE;
-          end else begin
+          if (byte_counter < DATA_WIDTH / 8) begin
             uart_state <= START;
-            fifo_rd_en <= 1;
-            shift_dout <= 9'b111111110;
+            shift_dout <= {DATA_WIDTH'1, 1'b0};
+          end else begin
+            byte_counter <= '0;
+
+            if (fifo_empty) begin
+              uart_state <= IDLE;
+            end else begin
+              uart_state <= START;
+              fifo_rd_en <= 1;
+              shift_dout <= {DATA_WIDTH'1, 1'b0};
+            end
           end
         end
       end
@@ -100,7 +110,6 @@ wire [8:0] temp;
 always @(posedge clk) begin
   f_past_valid <= 1'b1;
   if (f_past_valid) begin
-    if 
     if (fifo_empty) assert(!fifo_rd_en);
   end
 end

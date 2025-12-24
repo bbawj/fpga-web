@@ -11,14 +11,14 @@ module areset (
   initial sync_fifo = 2'h3;
 
   always @(posedge clk) begin
-    {sync_fifo[2:1], sync_fifo[0]} <= {sync_fifo, rst_n};
+    {sync_fifo[2:1], sync_fifo[0]} <= {sync_fifo[1:0], rst_n};
 
     if (sync_fifo[1] != sync_fifo[0]) debounce_count <= 0;
-    else if (debounce_count != 250000) begin
+    else if (debounce_count != 18'd250000) begin
       debounce_count <= debounce_count + 1;
     end
 
-    if (debounce_count == 250000) begin
+    if (debounce_count == 18'd250000) begin
       rst_n_debounced <= sync_fifo[2];
     end
   end

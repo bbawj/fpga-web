@@ -77,8 +77,8 @@ LOCATE COMP "sdram_addr[8]" SITE  "E8";
 LOCATE COMP "sdram_addr[9]" SITE  "C7";
 LOCATE COMP "sdram_addr[10]" SITE "B8";
 
-LCOCATE COMP "sdram_ba[0]" SITE "B7"
-LCOCATE COMP "sdram_ba[1]" SITE "A8"
+LOCATE COMP "sdram_ba[0]" SITE "B7";
+LOCATE COMP "sdram_ba[1]" SITE "A8";
 
 LOCATE COMP "sdram_we_n" SITE "B5";
 LOCATE COMP "sdram_cas_n" SITE "A6";
