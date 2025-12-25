@@ -1,5 +1,6 @@
 module blinky(
     input  wire         sysclk,
+    input wire rst,
     output wire         led_n,
 );
 
@@ -14,11 +15,14 @@ module blinky(
 
     always @(posedge sysclk)
     begin
+      if (rst) cntr <= 0;
+      else begin
         cntr    <= cntr + 1;
         if (cntr == count_1s) begin
           en <= ~en;
           cntr <= 0;
         end
+      end
     end
 
     assign led_n = en;

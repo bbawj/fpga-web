@@ -46,7 +46,7 @@ mdio: prep -top mdio
 mdio: flatten
 mdio: tribuf -formal
 
-mem: read -sv mem.sv
+mem: read -formal -sv mem.sv
 mem: prep -top mem
 
 [files]
