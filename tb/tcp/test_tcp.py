@@ -5,7 +5,7 @@ import pytest
 
 import cocotb
 import socket
-from scapy.all import TCP
+from scapy.all import TCP, IP, Raw, RandString
 from cocotb.runner import get_runner
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, with_timeout
@@ -35,30 +35,32 @@ class TB:
         await RisingEdge(self.dut.clk)
         await RisingEdge(self.dut.clk)
 
+
 @cocotb.test()
-async def tcp_decode(dut):
+async def tcp_decode_full(dut):
     tb = TB(dut)
 
     await tb.reset(tb.dut.decode_rst)
     tb.dut.decode_valid.setimmediatevalue(0)
 
-    packet = TCP()
-    packet.show()
+    packet = IP() / TCP() / Raw(RandString(size=120))
+    packet.show2()
 
     for d in bytes(packet):
         await RisingEdge(tb.dut.clk)
         tb.dut.decode_valid.value = 1
         tb.dut.decode_din.value = BinaryValue(d, 8, False, 0)
 
+    await RisingEdge(tb.dut.clk)
+    tb.dut.decode_valid.value = 0
     await with_timeout(RisingEdge(tb.dut.decode_done), 10, "us")
+    await RisingEdge(tb.dut.clk)
     assert tb.dut.decode_err.value == 0
     assert tb.dut.decode_source_port.value.integer == packet.sport
     assert tb.dut.decode_dest_port.value.integer == packet.dport
     assert tb.dut.decode_sequence_num.value.integer == packet.seq
     assert tb.dut.decode_ack_num.value.integer == packet.ack
 
-    await RisingEdge(tb.dut.clk)
-    tb.dut.decode_valid.value = 0
     await RisingEdge(tb.dut.clk)
     await RisingEdge(tb.dut.clk)
     assert tb.dut.decode_done.value == 0
@@ -71,10 +73,10 @@ async def tcp_decode(dut):
 def test_simple_dff_runner(speed_100):
     sim = os.getenv("SIM", "icarus")
 
-    proj_path = Path(__file__).resolve().parent
-
     source_folder = "../../rtl"
-    sources = [f"{source_folder}/tcp_decode.sv",
+    sources = [
+            f"{source_folder}/tcp_decode.sv",
+            f"{source_folder}/ip_decode.sv",
                "test_tcp.sv"]
 
     runner = get_runner(sim)

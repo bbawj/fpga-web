@@ -29,7 +29,7 @@ module ip_encode (
       ovalid <= '0;
       counter <= '0;
     end else if (en) begin
-      checksum <= ones_comp(ones_comp(ones_comp(ones_comp(ones_comp('d15096, len), sa[31:16]), sa[15:0]), da[31:16]), da[15:0]);
+      checksum <= ones_comp(ones_comp(ones_comp(ones_comp(ones_comp('d50439, len), sa[31:16]), sa[15:0]), da[31:16]), da[15:0]);
       counter <= counter < 'd19 ? counter + 1 : counter;
       case (counter)
         'd0: dout <= 'h45;
@@ -47,8 +47,8 @@ module ip_encode (
         // proto
         'd9: dout <= 'h06;
         // checksum
-        'd10: dout <= checksum[15:8];
-        'd11: dout <= checksum[7:0];
+        'd10: dout <= ~checksum[15:8];
+        'd11: dout <= ~checksum[7:0];
         // source address
         'd12: dout <= sa[31:24];
         'd13: dout <= sa[23:16];

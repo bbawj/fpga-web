@@ -40,10 +40,9 @@ end
 
 function automatic logic [15:0] ones_comp(logic [15:0] checksum, logic [15:0] data);
   reg [16:0] sum = 0;
-  reg [15:0] temp = ~data;
-  sum = temp + checksum;
+  sum = data + checksum;
   if (sum[16] == 1'b1)
-    ones_comp = sum[15:0] + 1;
+    ones_comp = sum[15:0] + 1'b1;
   else
     ones_comp = sum[15:0];
 endfunction

@@ -12,15 +12,15 @@ module ip_decode (
 
   output reg [31:0] sa,
   output reg [31:0] da,
+  output reg [15:0] packet_size,
+  output reg [7:0] ihl,
   output reg err,
   output reg done
   );
 reg [31:0] working = '0;
 reg [7:0] counter = '0;
-reg [15:0] packet_size = '0;
 reg [15:0] checksum = '0;
 reg [15:0] working_checksum = '0;
-reg [7:0] ihl = '0;
 
   always @(posedge clk) begin
     if (rst || ~valid) begin
@@ -33,7 +33,6 @@ reg [7:0] ihl = '0;
         working_checksum <= ones_comp(working_checksum, working[15:0]);
 
       working <= {working[23:0], din};
-      done <= 0;
 
       if (!done) counter <= counter + 1;
 
@@ -42,7 +41,7 @@ reg [7:0] ihl = '0;
       8'd1: begin
         if (working[7:4] != 4'h4) err <= 1;
         // Internet header length represents number of 4 byte words in header
-        ihl <= 8'd4 * working[3:0];
+        ihl <= working[3:0];
       end
       // Total length
       8'd4: packet_size <= working[15:0];
@@ -52,10 +51,10 @@ reg [7:0] ihl = '0;
       // Header Checksum
       8'd12: checksum <= working[15:0];
       8'd16: sa <= working;
-      8'd20: begin
-        da <= working;
+      8'd19: begin
+        da <= {working[23:0], din};
         done <= 1;
-        err <= ~ones_comp(working_checksum, working) != '0;
+        err <= ~ones_comp(working_checksum, {working[23:0], din}) != '0;
       end
       default: begin
         // NO OP, wait for valid de-assert

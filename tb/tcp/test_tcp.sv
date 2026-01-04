@@ -10,12 +10,34 @@ module test_tcp(
   output reg decode_err,
   output reg decode_done
   );
+  reg [31:0] ip_sa;
+  reg [31:0] ip_da;
+  reg [7:0] ip_ihl;
+  reg [15:0] ip_payload_size;
+  reg ip_done;
 
-  tcp_decode dec (
+  ip_decode ip_dec (
     .clk(clk),
     .rst(decode_rst),
     .valid(decode_valid),
     .din(decode_din),
+    .sa(ip_sa),
+    .da(ip_da),
+    .packet_size(ip_payload_size),
+    .ihl(ip_ihl),
+    .err(),
+    .done(ip_done)
+    );
+
+  tcp_decode dec (
+    .clk(clk),
+    .rst(decode_rst),
+    .valid(ip_done),
+    .din(decode_din),
+    .ip_sa(ip_sa),
+    .ip_da(ip_da),
+    .ip_ihl(ip_ihl),
+    .ip_payload_size(ip_payload_size),
 
     .source_port(decode_source_port),
     .dest_port(decode_dest_port),
