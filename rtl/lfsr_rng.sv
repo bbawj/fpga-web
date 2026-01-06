@@ -7,7 +7,7 @@ module lfsr_rng #(
   input clk,
   input rst,
   input [DATA_WIDTH-1:0] seed,
-  output reg [DATA_WIDTH-1:0] dout,
+  output reg [DATA_WIDTH-1:0] dout
   );
 
   wire feedback;
@@ -26,14 +26,9 @@ module lfsr_rng #(
 
   always @(posedge clk) begin
     if (rst) begin
-      init <= 'b1;
+      dout <= seed;
     end else begin
-      if (init == 'b1) begin
-        init <= '0;
-        dout <= seed;
-      end else begin
-        dout <= {feedback, dout[DATA_WIDTH-1:2]};
-      end
+      dout <= {feedback, dout[DATA_WIDTH-1:1]};
     end
   end
 endmodule

@@ -13,7 +13,7 @@ module ip_decode (
   output reg [31:0] sa,
   output reg [31:0] da,
   output reg [15:0] packet_size,
-  output reg [7:0] ihl,
+  output reg [3:0] ihl,
   output reg err,
   output reg done
   );
@@ -54,7 +54,7 @@ reg [15:0] working_checksum = '0;
       8'd19: begin
         da <= {working[23:0], din};
         done <= 1;
-        err <= ~ones_comp(working_checksum, {working[23:0], din}) != '0;
+        err <= ~ones_comp(working_checksum, {working[7:0], din}) != '0;
       end
       default: begin
         // NO OP, wait for valid de-assert
