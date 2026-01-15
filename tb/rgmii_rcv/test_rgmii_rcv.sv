@@ -28,14 +28,23 @@ rgmii_rcv rcv (
   .rx_er(rx_er)
   );
 
+reg [7:0] rxd_delayed; 
+reg rx_dv_delayed;
+delay #(.WIDTH(9), .DEPTH(4)) _delay(.clk(rxc), .rst(rst), 
+  .data_in({rxd, rx_dv}), .data_out({rxd_delayed, rx_dv_delayed}));
+
+reg payload_valid;
 reg rgmii_rcv_busy;
 reg [47:0] mac_sa;
 mac_decode #(.MAC_ADDR(LOC_MAC_ADDR)) _mac_decode (
   .clk(rxc),
   .rst(rst),
-  .rxd(rxd),
-  .rx_dv(rx_dv),
+  .rxd_realtime(rxd),
+  .rx_dv_realtime(rx_dv),
+  .rxd(rxd_delayed),
+  .rx_dv(rx_dv_delayed),
 
+  .payload_valid(payload_valid),
   .sa(mac_sa),
   .busy(rgmii_rcv_busy),
   .crc_err(rgmii_rcv_crc_err),

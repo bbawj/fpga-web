@@ -6,7 +6,7 @@ import pytest
 import cocotb
 from cocotb.runner import get_runner
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, with_timeout
+from cocotb.triggers import RisingEdge, with_timeout, First
 from cocotbext.eth import GmiiFrame, RgmiiSource
 
 class TB:
@@ -67,8 +67,8 @@ async def mac_rgmii_rcv_arp_payload(dut):
 
     for test_data in test_frames:
         test_frame = GmiiFrame.from_payload(test_data)
-        await tb.source.send(test_frame)
-        await with_timeout(RisingEdge(tb.dut.arp_decode_valid), 5000, "ns")
+        await First(cocotb.start_soon(tb.source.send(test_frame)),
+                      cocotb.start_soon(with_timeout(RisingEdge(tb.dut.arp_decode_valid), 5000, "ns")))
 
         await tb.source.wait()
         assert dut.ip_valid.value == 0
@@ -109,6 +109,7 @@ def test_simple_dff_runner(speed_100):
                f"{source_folder}/clk_divider.sv",
                f"{source_folder}/mac_decode.sv",
                f"{source_folder}/iddr.sv",
+               f"{source_folder}/delay.sv",
                f"{source_folder}/rgmii_rcv.sv",
                f"{source_folder}/crc32.sv"]
 

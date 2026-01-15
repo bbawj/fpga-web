@@ -3,9 +3,13 @@ module mac_decode #(
   )(
   input wire clk,
   input wire rst,
+  input reg [7:0] rxd_realtime,
+  input reg rx_dv_realtime,
+  // These are delayed 4 cycles in order to let us pre-empt the 32 bit FCS 
   input reg [7:0] rxd,
   input reg rx_dv,
 
+  output reg payload_valid,
   output reg [47:0] sa,
   output reg busy,
   output reg crc_err,
@@ -45,7 +49,7 @@ always @(posedge clk) begin
       end
       default: begin
         if (rx_dv) begin
-          din <= rxd;
+          din <= rxd_realtime;
           if (~start_crc_flag) begin
             crc_next <= 32'hFFFFFFFF;
             start_crc_flag <= 1'b1;
@@ -76,6 +80,7 @@ always @(posedge clk) begin
       ether_type <= '0;
       counter <= '0;
 
+      payload_valid <= 0;
       ip_valid <= 0;
       arp_decode_valid <= 0;
     end else begin
@@ -118,6 +123,7 @@ always @(posedge clk) begin
         TYPE: begin
           ether_type <= { ether_type[7:0], rxd };
           if (counter == 16'd1) begin 
+            payload_valid <= 1;
             counter <= '0;
             if ({ether_type[7:0], rxd} <= 16'd1500) begin
               ip_valid <= 1;
@@ -144,9 +150,19 @@ always @(posedge clk) begin
           if (counter >= 1503) begin
             state <= ABORT;
           end
+          // Falling edge of phy rx_dv. This means the last 4 bytes were FCS,
+          // transition to abort to prevent downstream receivers from
+          // processing FCS.
+          if (!rx_dv_realtime && rx_dv) begin
+            state <= ABORT;
+            payload_valid <= 0;
+            ip_valid <= 0;
+            arp_decode_valid <= 0;
+          end
         end
         ABORT: begin
           // NOP. Wait for RX_DV deassertion to restart
+          payload_valid <= 0;
           ip_valid <= 0;
           arp_decode_valid <= 0;
         end
