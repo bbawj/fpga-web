@@ -1,26 +1,27 @@
 `default_nettype none
 
 module ebr #(
-    parameter DATA_WIDTH = 8,
-    parameter SIZE = 32,
-    parameter SIZE_WIDTH = $clog2(SIZE)
+    parameter int WR_WIDTH = 8,
+    parameter int RD_WIDTH = WR_WIDTH,
+    parameter int SIZE = 32,  // in units of WR_WIDTH
+    parameter int SIZE_WIDTH = $clog2(SIZE)
 ) (
-    input clk,
+    input wr_clk,
     input wr_en,
     input [SIZE_WIDTH-1:0] wr_addr,
-    input [DATA_WIDTH-1:0] wr_data,
+    input [WR_WIDTH-1:0] wr_data,
 
+    input rd_clk,
     input rd_en,
     input [SIZE_WIDTH-1:0] rd_addr,
-    output reg [DATA_WIDTH-1:0] rd_data
+    output reg [RD_WIDTH-1:0] rd_data
 );
-
-  reg [DATA_WIDTH-1:0] mem[0:SIZE-1];
+  reg [WR_WIDTH-1:0] mem[0:SIZE-1];
 
   reg [SIZE_WIDTH-1:0] wr_ptr;
   reg wr_started = '0;
 
-  always @(posedge clk) begin
+  always @(posedge wr_clk) begin
     if (wr_en) begin
       if (!wr_started) begin
         wr_ptr <= wr_addr + 1;
@@ -36,18 +37,25 @@ module ebr #(
     end
   end
 
-  reg [SIZE_WIDTH-1:0] rd_ptr;
+  // Read side - assembles 4x 8-bit words into 32-bit
+  localparam logic [SIZE_WIDTH-1:0] RATIO = (SIZE_WIDTH'(RD_WIDTH / WR_WIDTH));
   reg rd_started = '0;
+  reg [SIZE_WIDTH-1:0] rd_ptr;
 
-  always @(posedge clk) begin
+  always @(posedge rd_clk) begin
     if (rd_en) begin
       if (!rd_started) begin
         rd_ptr <= rd_addr + 1;
-        rd_data <= mem[rd_addr];
+        for (logic [SIZE_WIDTH-1:0] i = 0; i < RATIO; i++) begin
+          rd_data[i*WR_WIDTH+:WR_WIDTH] <= mem[rd_ptr+i];
+        end
+        rd_ptr <= rd_ptr + RATIO;
         rd_started <= 1;
       end else begin
-        rd_data <= mem[rd_ptr];
-        rd_ptr  <= rd_ptr + 1;
+        for (logic [SIZE_WIDTH-1:0] i = 0; i < RATIO; i++) begin
+          rd_data[i*WR_WIDTH+:WR_WIDTH] <= mem[rd_ptr+i];
+        end
+        rd_ptr <= rd_ptr + RATIO;
       end
     end else begin
       rd_started <= 0;

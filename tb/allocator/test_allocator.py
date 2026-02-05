@@ -9,8 +9,6 @@ from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, with_timeout, ReadWrite
 from cocotb.binary import BinaryValue
 
-LOC_MAC_ADDR = "DEADBEEFCAFE"
-LP_MAC_ADDR = "FEEDBABEFACE"
 
 class TB:
     def __init__(self, dut):
@@ -19,6 +17,7 @@ class TB:
         self.log = logging.getLogger("cocotb.tb")
         self.log.setLevel(logging.DEBUG)
         cocotb.start_soon(Clock(dut.clk, 8, units='ns').start())
+        cocotb.start_soon(Clock(dut.rd_clk, 8, units='ns').start())
 
     async def reset(self, signal):
         signal.setimmediatevalue(0)
@@ -68,7 +67,7 @@ async def allocator_sizes(dut):
 @cocotb.test()
 async def allocator_ebr(dut):
     tb = TB(dut)
-    sizes = [14,10]
+    sizes = [16,8]
     payloads = [incrementing_payload(s) for s in sizes]
     addr = []
 
@@ -76,17 +75,18 @@ async def allocator_ebr(dut):
     for s, p in zip(sizes, payloads):
         addr.append(await alloc_readback(tb, s, p))
     # check for data integrity
+    RATIO = int(os.getenv("RATIO", 1))
     for i, a in enumerate(addr):
         tb.dut.rd_en.value = 1
         tb.dut.i_addr.value = a
         out = bytearray()
-        for _ in range(sizes[i]):
-            await RisingEdge(tb.dut.clk)
+        for _ in range(int(sizes[i]/RATIO)):
+            await RisingEdge(tb.dut.rd_clk)
             await ReadWrite()
-            out.append(tb.dut.o_rd_data.value.integer)
+            out.extend(tb.dut.o_rd_data.value.buff[::-1])
         assert out == payloads[i]
         tb.dut.rd_en.value = 0
-        await RisingEdge(tb.dut.clk)
+        await RisingEdge(tb.dut.rd_clk)
 
 
 async def alloc_readback(tb, alloc_len, alloc_payload):
@@ -100,28 +100,31 @@ async def alloc_readback(tb, alloc_len, alloc_payload):
     tb.dut.i_addr.value = tb.dut.o_addr.value
     addr = tb.dut.o_addr.value
     for d in alloc_payload:
-        tb.dut.wr_data.value = BinaryValue(d, 32, False, 0)
+        tb.dut.wr_data.value = BinaryValue(d, 8, False, 0)
         await RisingEdge(tb.dut.clk)
 
     tb.dut.wr_en.value = 0
-    tb.dut.rd_en.value = 1
-    for i in range(alloc_len):
-        await RisingEdge(tb.dut.clk)
-        await ReadWrite()
-        out.append(tb.dut.o_rd_data.value.integer)
-        if i == alloc_len - 1:
-            tb.dut.rd_en.value = 0
     await RisingEdge(tb.dut.clk)
+    tb.dut.rd_en.value = 1
+    await RisingEdge(tb.dut.rd_clk)
+    RATIO = int(os.getenv("RATIO", 1))
+    for _ in range(int(alloc_len/RATIO)):
+        await RisingEdge(tb.dut.rd_clk)
+        await ReadWrite()
+        print(tb.dut.o_rd_data.value.buff)
+        out.extend(tb.dut.o_rd_data.value.buff[::-1])
+    tb.dut.rd_en.value = 0
+    await RisingEdge(tb.dut.rd_clk)
     assert out == alloc_payload
     return addr
 
 def incrementing_payload(length):
     return bytearray(itertools.islice(itertools.cycle(range(256)), length))
 
-@pytest.mark.parametrize("speed_100", [True, False])
-def test_simple_dff_runner(speed_100):
+@pytest.mark.parametrize("RD_WIDTH", [8, 32])
+def test_simple_dff_runner(RD_WIDTH):
     sim = os.getenv("SIM", "icarus")
-
+    RATIO = f"{int(RD_WIDTH / 8)}"
     source_folder = "../../rtl"
     sources = [
             f"{source_folder}/ebr.sv",
@@ -136,7 +139,7 @@ def test_simple_dff_runner(speed_100):
         clean=True,
         waves=True,
         verbose=True,
-        defines= {"SPEED_100M": "True"} if speed_100 else {},
+        parameters={"MAU": 8, "RD_WIDTH": RD_WIDTH},
         includes=[f"{source_folder}/"],
         # build_args=["--trace-fst", "--trace-structs"],
         # build_args=["-y/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/"],
@@ -145,8 +148,8 @@ def test_simple_dff_runner(speed_100):
 
     runner.test(waves=True,
                 verbose=True,
-                parameters={"MAC_ADDR": LOC_MAC_ADDR},
-                extra_env={"SPEED_100M": "True" } if speed_100 else {},
+                extra_env={"RATIO": RATIO},
+                parameters={"MAU": 8, "RD_WIDTH": RD_WIDTH},
                 hdl_toplevel="test_allocator", test_module="test_allocator,")
 
 if __name__ == "__main__":
