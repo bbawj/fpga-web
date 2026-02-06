@@ -8,8 +8,7 @@ module tcp_encode (
   // used for IP pseudo header in TCP checksum calc
   input [31:0] ip_sa,
   input [31:0] ip_da,
-  input [3:0] ip_ihl,
-  input [15:0] ip_payload_size,
+  input [15:0] ip_packet_len,
 
   input [15:0] source_port,
   input [15:0] dest_port,
@@ -17,9 +16,8 @@ module tcp_encode (
   input [31:0] ack_num,
   input [7:0] flags,
   input [15:0] window,
-  input [15:0] urg,
+  input [15:0] initial_checksum,
 
-  output reg err,
   output reg ready,
   output reg [7:0] dout
 );
@@ -35,7 +33,6 @@ STATE state = IDLE;
 always @(posedge clk) begin
   if (rst) begin
     counter <= '0;
-    err <= '0;
     checksum <= '0;
     state <= IDLE;
   end else if (en) begin
@@ -47,8 +44,8 @@ always @(posedge clk) begin
           ready <= '0;
           checksum <=
             ones_comp(ones_comp(ones_comp(ones_comp(
-            ones_comp(ones_comp(checksum, ip_da[15:0]), ip_da[31:16]), 
-            ip_sa[15:0]), ip_sa[31:16]), ip_payload_size - 16'd20), 16'd6);
+            ones_comp(ones_comp(initial_checksum, ip_da[15:0]), ip_da[31:16]), 
+            ip_sa[15:0]), ip_sa[31:16]), ip_packet_len - 16'd20), 16'd6);
         end
         BUSY: begin
           counter <= counter < 'd19 ? counter + 1 : counter;
@@ -69,8 +66,12 @@ always @(posedge clk) begin
            'd12: out = flags;
            'd13: out = window[15:8];
            'd14: out = window[7:0];
+           'd15: out = checksum[15:8];
+           'd16: out = checksum[7:0];
           endcase
-          checksum <= ones_comp(checksum, out);
+          if (counter < 'd15)
+            checksum <= ones_comp(checksum, out);
+
           dout <= out;
         end
       end
