@@ -11,21 +11,22 @@ module tcp_arbiter #(
     // TCB input updated from TCP state machine transitions
     input tcp::tcb_t i_tcb,
 
-    output tcp_is_rx,
+    output reg tcp_is_rx,
     // Tells the upper layer of the network stack that there is a new TCP payload
     // available at tcp_payload_addr.
-    output tcp_payload_valid,
+    output reg tcp_payload_valid,
     // Address of the payload in the TCP incoming buffer
-    output [tcp::BUFF_WIDTH-1:0] tcp_payload_addr,
+    output reg [tcp::BUFF_WIDTH-1:0] tcp_payload_addr,
     output tcp::tcb_t o_tcb
 );
 
   // TODO: array of
-  tcp::tcb_t tcb;
+  tcp::tcb_t tcb = 0;
 
   typedef enum {
     IDLE,
-    RX_PACKET
+    RX_PACKET,
+    WAIT_SM_TRANSITION
   } state_t;
   state_t state = IDLE;
 
@@ -35,15 +36,15 @@ module tcp_arbiter #(
         if (valid) begin
           if (is_rx) begin
             state <= RX_PACKET;
-            if (tcb.source_port == pkt.peer_port && tcb.ip_source_addr == pkt.ip_source_addr) begin
+            if (tcb.peer_port == pkt.peer_port && tcb.peer_addr == pkt.peer_addr) begin
               tcb.sequence_num <= pkt.sequence_num;
               tcb.ack_num <= pkt.ack_num;
               tcb.window <= pkt.window;
             end else begin
               // no matching TCB, create a new one
               // for now we do no validation of other fields, assume they are 0
-              tcb.ip_source_addr <= pkt.ip_source_addr;
-              tcb.source_port <= pkt.peer_port;
+              tcb.peer_addr <= pkt.peer_addr;
+              tcb.peer_port <= pkt.peer_port;
               tcb.sequence_num <= '0;
               tcb.ack_num <= '0;
               tcb.window <= '0;
@@ -55,6 +56,8 @@ module tcp_arbiter #(
       RX_PACKET: begin
         o_tcb <= tcb;
         tcp_is_rx <= 'b1;
+      end
+      WAIT_SM_TRANSITION: begin
         if (sm_accept_payload) begin
           tcp_payload_valid <= 1'b1;
           tcp_payload_addr <= pkt.payload_addr;

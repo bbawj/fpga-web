@@ -29,14 +29,14 @@ package tcp;
   // Number of bits to represent the memory address storing TCP payload
   localparam BUFF_WIDTH = $clog2(BUFF_SIZE);
   typedef struct packed {
-    logic [31:0] ip_source_addr;
+    logic [31:0] peer_addr;
+    logic [15:0] peer_port;
     // Address to payload in memory
     logic [BUFF_WIDTH-1:0] payload_addr;
     logic [15:0] payload_size;
     // precomputed ones complement sum of payload and IP psuedo header
     logic [15:0] checksum;
     logic [7:0] flags;
-    logic [15:0] peer_port;
     logic [15:0] window;
     // Ack number expected to receive for this packet. 
     // Filled up only at the time when the packet is sent as it may change.
@@ -46,8 +46,8 @@ package tcp;
   } packet_t;
   typedef struct packed {
     // to identify this TCB uniquely
-    logic [31:0] ip_source_addr;
-    logic [15:0] source_port;
+    logic [31:0] peer_addr;
+    logic [15:0] peer_port;
     // Sequence number for transmitting our own data.
     logic [31:0] sequence_num;
     // Ack number used for transmitting. i.e. the number expected by the
@@ -82,7 +82,7 @@ module tcp_sm (
     input tcp::packet_t incoming_pkt,
     // tx_en asserted high with pkt_to_send, a reader needs to detect this and
     // save pkt_to_send
-    output tx_en,
+    output reg tx_en,
     output tcp::packet_t pkt_to_send,
 
     output tcp::tcb_t next_tcb,
@@ -135,7 +135,8 @@ module tcp_sm (
               accept_payload <= 1'b1;
 
               tx_en <= 1'b1;
-              pkt_to_send.peer_port <= current_tcb.source_port;
+              pkt_to_send.peer_addr <= current_tcb.peer_addr;
+              pkt_to_send.peer_port <= current_tcb.peer_port;
               pkt_to_send.ack_num <= incoming_pkt.sequence_num + 1;
               pkt_to_send.flags <= tcp::SYN | tcp::ACK;
             end
