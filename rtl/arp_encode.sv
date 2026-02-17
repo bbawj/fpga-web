@@ -11,7 +11,7 @@ module arp_encode #(
   input reg [47:0] tha,
   input reg [31:0] tpa,
 
-  output reg ovalid,
+  output reg done,
   output reg [7:0] dout
 );
 
@@ -48,7 +48,7 @@ localparam [7:0] COUNT_TPA = 8'd28;
     if (rst) begin
       dout <= '0;
       counter <= '0;
-      ovalid <= 0;
+      done <= 0;
     end else begin
       if (en) begin
         if (counter == COUNT_TPA) counter <= '0;
@@ -92,8 +92,8 @@ localparam [7:0] COUNT_TPA = 8'd28;
         counter <= 1;
       end
 
-      if (counter == COUNT_TPA) ovalid <= 0;
-      else ovalid <= 1;
+      if (counter == COUNT_TPA - 1) done <= 1;
+      else done <= 0;
     end
   end
 
@@ -101,8 +101,8 @@ localparam [7:0] COUNT_TPA = 8'd28;
   initial	assume(rst);
   always @(posedge clk) begin
     assert (counter >= 0 && counter <= COUNT_TPA);
-    if (counter == 0) assert (ovalid == 0);
-    if (ovalid == 1) assert (counter != 0);
+    if (counter == 0) assert (done == 0);
+    if (done == 1) assert (counter != 0);
   end
 `endif
 

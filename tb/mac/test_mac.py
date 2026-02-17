@@ -4,15 +4,16 @@ import logging
 import os
 import cocotb
 import pytest
-from cocotb.runner import get_runner
+from cocotb_tools.runner import get_runner
 from cocotb.utils import get_sim_time, get_sim_steps
-from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, with_timeout, Timer
+from cocotb.clock import Clock, Timer
+from cocotb.triggers import RisingEdge, with_timeout
 
 from cocotbext.eth import GmiiFrame, RgmiiPhy
 
 LOC_MAC_ADDR = "DEADBEEFCAFE"
 MAC_SRC = "b025aa3306fe"
+
 
 class TB:
     def __init__(self, dut, speed_100):
@@ -26,14 +27,16 @@ class TB:
         else:
             cocotb.start_soon(self._run_clocks(dut.clk, 0, 8))
             cocotb.start_soon(self._run_clocks(dut.phy_txc, 90, 8))
+        dut.rst.value = cocotb.handle.Immediate(1)
         self.rgmii_phy = RgmiiPhy(dut.phy_txd, dut.phy_txctl, dut.phy_txc,
-            dut.phy_rxd, dut.phy_rxctl, dut.phy_rxc, dut.rst, speed=100e6 if speed_100 else 1000e6)
+                                  dut.phy_rxd, dut.phy_rxctl, dut.phy_rxc, dut.rst, speed=100e6 if speed_100 else 1000e6)
 
     async def _run_clocks(self, port, phase, period):
         half_period = get_sim_steps(period / 2.0, 'ns')
         t = Timer(half_period)
 
-        await Timer(phase/360 * period, 'ns')
+        if phase > 0:
+            await Timer(phase/360.0 * period, 'ns')
         while True:
             port.value = 1
             port.value = 1
@@ -63,6 +66,7 @@ def size_list():
 def incrementing_payload(length):
     return bytearray(itertools.islice(itertools.cycle(range(256)), length))
 
+
 @cocotb.test()
 async def arp_reply(dut):
     speed_100 = os.getenv("SPEED_100M", None)
@@ -77,22 +81,25 @@ async def arp_reply(dut):
     tpa = bytes.fromhex("69696969")
     spa = bytes.fromhex("c0a84564")
 
-    test_data = bytes.fromhex("deadbeefcafeb025aa3306fe08060001080006040001b025aa3306fec0a84564DEADBEEFCAFE6969696900000000000000000000000000000000")
+    test_data = bytes.fromhex(
+        "deadbeefcafeb025aa3306fe08060001080006040001b025aa3306fec0a84564DEADBEEFCAFE6969696900000000000000000000000000000000")
     for i in range(2):
 
-        #test_data = mac_payload(tha, sha, ether_type, arp_payload(op, sha, tha, spa, tpa))
+        # test_data = mac_payload(tha, sha, ether_type, arp_payload(op, sha, tha, spa, tpa))
         test_frame = GmiiFrame.from_payload(test_data)
         await tb.rgmii_phy.rx.send(test_frame)
 
         reply_op = bytes.fromhex("0002")
-        expected_data = mac_payload(sha, tha, ether_type, arp_payload(reply_op, tha, sha, tpa, spa))
+        expected_data = mac_payload(
+            sha, tha, ether_type, arp_payload(reply_op, tha, sha, tpa, spa))
         rx_frame = await with_timeout(tb.rgmii_phy.tx.recv(), 50000, "ns")
         assert rx_frame.get_payload() == expected_data
         assert rx_frame.check_fcs()
         assert rx_frame.error is None
 
     # ethertype set to 0x86dd
-    bad_data = bytes.fromhex("deadbeefcafeb025aa3306fe86dd0001080006040001b025aa3306fec0a84564DEADBEEFCAFE6969696900000000000000000000000000000000")
+    bad_data = bytes.fromhex(
+        "deadbeefcafeb025aa3306fe86dd0001080006040001b025aa3306fec0a84564DEADBEEFCAFE6969696900000000000000000000000000000000")
     test_frame = GmiiFrame.from_payload(bad_data)
     await tb.rgmii_phy.rx.send(test_frame)
     await tb.rgmii_phy.rx.wait()
@@ -102,11 +109,13 @@ async def arp_reply(dut):
         await tb.rgmii_phy.rx.send(test_frame)
 
         reply_op = bytes.fromhex("0002")
-        expected_data = mac_payload(sha, tha, ether_type, arp_payload(reply_op, tha, sha, tpa, spa))
+        expected_data = mac_payload(
+            sha, tha, ether_type, arp_payload(reply_op, tha, sha, tpa, spa))
         rx_frame = await with_timeout(tb.rgmii_phy.tx.recv(), 50000, "ns")
         assert rx_frame.get_payload() == expected_data
         assert rx_frame.check_fcs()
         assert rx_frame.error is None
+
 
 def arp_payload(op, sha, tha, spa, tpa):
     hw_type = bytearray.fromhex("0001")
@@ -121,6 +130,7 @@ def arp_payload(op, sha, tha, spa, tpa):
     return (hw_type + protocol + hw_len + prot_len + op +
             sha + spa + tha + tpa)
 
+
 def mac_payload(dest, src, ether_type, payload):
     dest = dest
     src = src
@@ -130,6 +140,7 @@ def mac_payload(dest, src, ether_type, payload):
         payload = payload + bytearray(60-len(payload))
     return payload
 
+
 @pytest.mark.parametrize("speed_100", [False])
 def test_simple_dff_runner(speed_100):
     sim = os.getenv("SIM", "icarus")
@@ -138,9 +149,15 @@ def test_simple_dff_runner(speed_100):
     sources = [f"{source_folder}/mac_encode.sv",
                f"{source_folder}/mac_decode.sv",
                f"./test_mac.sv",
+               f"{source_folder}/synchronizer.sv",
+               f"{source_folder}/ebr.sv",
+               f"{source_folder}/tcp.sv",
                f"{source_folder}/mac.sv",
+               f"{source_folder}/mac_tx.sv",
                f"{source_folder}/oddr.sv",
                f"{source_folder}/iddr.sv",
+               f"{source_folder}/ip_encode.sv",
+               f"{source_folder}/tcp_encode.sv",
                f"{source_folder}/ip_decode.sv",
                f"{source_folder}/arp_decode.sv",
                f"{source_folder}/arp_encode.sv",
@@ -158,14 +175,14 @@ def test_simple_dff_runner(speed_100):
         clean=True,
         waves=True,
         verbose=True,
-        defines= {"SPEED_100M": "True"} if speed_100 else {},
+        defines={"SPEED_100M": "True"} if speed_100 else {},
         includes=[f"{source_folder}/"],
-        build_args=["-y/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/"],
+        build_args=[
+            "-y/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/"],
         timescale=("1ns", "1ps"),
     )
 
     runner.test(waves=True,
                 verbose=True,
-                extra_env={"SPEED_100M": "True" } if speed_100 else {},
+                extra_env={"SPEED_100M": "True"} if speed_100 else {},
                 hdl_toplevel="test_mac", test_module="test_mac,")
-

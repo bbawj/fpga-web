@@ -44,7 +44,7 @@ reg [7:0] ipg_counter = '0;
 // the first 4 bits of mac_phy_txd. Hence, the counts are doubled for 100M,
 // since 2 cycles are required to go through the 1 byte as compared to 1000M.
 `ifdef SPEED_100M
-localparam [7:0] IPG_COUNT = 8'd192;
+localparam [7:0] IPG_COUNT = 8'd16;
 localparam [15:0] COUNT_PREAMBLE = 16'd14;
 localparam [15:0] COUNT_SFD = 16'd16;
 localparam [15:0] COUNT_DEST = 16'd28;
@@ -54,7 +54,7 @@ localparam [15:0] COUNT_MIN_PAYLOAD = 16'd136;
 localparam [15:0] COUNT_MAX_PAYLOAD = 16'd3052;
 localparam [3:0] COUNT_FCS = 4'd8;
 `else
-localparam [7:0] IPG_COUNT = 8'd96;
+localparam [7:0] IPG_COUNT = 8'd8;
 localparam [15:0] COUNT_PREAMBLE = 16'd7;
 localparam [15:0] COUNT_SFD = 16'd8;
 localparam [15:0] COUNT_DEST = 16'd14;
@@ -133,9 +133,11 @@ always @(posedge clk) begin
         crc_din <= `SELECT_BYTE_MSB(ethertype, counter, COUNT_SOURCE);
         crc_next <= crc_out;
         counter <= counter + 1;
-        if (counter == COUNT_TYPE - 1) begin 
+        if (counter == COUNT_TYPE - 2) begin 
           // Tell users of this module that mac header is done.
           send_next <= 1;
+        end
+        if (counter == COUNT_TYPE - 1) begin 
           cur_state <= PAYLOAD;
         end
       end
