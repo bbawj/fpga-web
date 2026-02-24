@@ -4,26 +4,19 @@ from utils import *
 from scapy.all import Raw, RandString
 
 import cocotb
-from multiprocessing import Queue
-from scapy.all import TCP_client
 from cocotb_tools.runner import get_runner
 from cocotb.clock import Clock, Timer
 from cocotb.triggers import RisingEdge, with_timeout, ReadWrite
 
 
-class TB:
+class TB(TCPSimSock):
     def __init__(self, dut):
         self.dut = dut
-
         self.log = logging.getLogger("cocotb.tb")
         self.log.setLevel(logging.DEBUG)
-        # self.packet.show2()
-        self.sent = []
-        self.received = []
-        self.from_hdl = Queue()
-        self.pkt_decoder = PacketTDecoder()
         cocotb.start_soon(Clock(dut.clk, 8, units='ns').start())
-        cocotb.start_soon(self.recv_async())
+        super().__init__(self.dut.clk, self.dut.tcp_arb_rdy,
+                         self.dut.packet, self.dut.tcp_packet_valid, self.dut.tcp_packet_rx, self.dut.pkt_tx_en, self.dut.pkt_to_send)
 
     async def reset(self, signal):
         signal.setimmediatevalue(0)
@@ -40,27 +33,9 @@ class TB:
         await RisingEdge(self.dut.clk)
         await RisingEdge(self.dut.clk)
 
-    async def reset_pkt_sent(self):
-        await RisingEdge(self.dut.clk)
-        await ReadWrite()
-        self.dut.tcp_packet_valid.value = 0
-        self.dut.tcp_packet_rx.value = 0
+    def send(self, pkt):
+        super().send(pkt)
 
-    async def send_pkt_to_hdl(self, pkt):
-        await RisingEdge(self.dut.clk)
-        while self.dut.tcp_arb_rdy.value == 0:
-            await RisingEdge(self.dut.clk)
-            await ReadWrite()
-        cocotb.log.info("packet to HDL")
-        # pkt.show2()
-        sv_packet = TcpPacketSV.from_scapy(pkt, 2)
-        self.dut.packet.value = sv_packet.to_binaryvalue()
-        self.dut.tcp_packet_valid.value = 1
-        self.dut.tcp_packet_rx.value = 1
-        await self.reset_pkt_sent()
-        await RisingEdge(self.dut.clk)
-        await RisingEdge(self.dut.clk)
-        await RisingEdge(self.dut.clk)
         if len(pkt[TCP].payload) == 0:
             assert self.dut.sm_accept_payload.value == 0
             assert self.dut.sm_reject_payload.value == 1
@@ -68,75 +43,12 @@ class TB:
             assert self.dut.sm_accept_payload.value == 1
             assert self.dut.sm_reject_payload.value == 0
 
-    async def recv_async(self):
-        while True:
-            await RisingEdge(self.dut.pkt_tx_en)
-            cocotb.log.info("Test Bench trying to send packet:")
-            # TODO: check no packet then just quickly return
-            s = self.pkt_decoder.signal_to_scapy(self.dut.pkt_to_send.value)
-            s.show2()
-            self.from_hdl.put(s, block=False)
+    async def send_pkt_to_hdl(self, pkt, sig_clk, sig_rdy, sig_pkt, sig_pkt_valid, sig_pkt_rx):
+        await super().send_pkt_to_hdl(pkt, sig_clk, sig_rdy, sig_pkt, sig_pkt_valid, sig_pkt_rx)
 
-    async def recv_pkt_from_hdl(self):
         await RisingEdge(self.dut.clk)
-        if self.from_hdl.empty():
-            return None
-        return self.from_hdl.get()
-
-    def recv(self):
-        return cocotb.task.resume(self.recv_pkt_from_hdl)()
-
-    def send(self, pkt):
-        cocotb.log.info("Simulator trying to send packet:")
-        cocotb.task.resume(self.send_pkt_to_hdl)(pkt)
-
-    @staticmethod
-    def select(sockets, remain=None):
-        # first element is "cmdin" we are trying to return ourselves back to Automaton i.e. listen_socket
-        if sockets[0].empty():
-            return sockets[1:]
-        if hasattr(sockets[0], "from_hdl") and sockets[0].from_hdl.empty():
-            return sockets[1:]
-        return sockets
-
-    def close(self):
-        self.closed = True
-        pass
-
-    def __del__(self):
-        pass
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        # type: (Optional[Type[BaseException]], Optional[BaseException], Optional[Any]) -> None  # noqa: E501
-        """Close the socket"""
-        pass
-
-
-class TCP_client_sim(TCP_client):
-    def __init__(self, tb, ready, ref, *args, **kargs):
-        self.tb = tb
-        ready.set()
-        ref.append(self)
-        super().__init__(*args, sock=self.tb, **kargs)
-
-    def parse_args(self, *args, **kargs):
-        print(f"TB: {self.tb}")
-        # Call parent with simulation IPs
-        super().parse_args(*args, debug=10, **kargs)
-
-    def _do_start(self, *args, **kargs):
-        ready = Dummy()
-        args = (ready,) + (args)
-        super().run(wait=False)
-        super()._do_control(*args, **kargs)
-
-    def syn_ack_timeout(self):
-        pass
-
-
-class Dummy:
-    def set(self):
-        pass
+        await RisingEdge(self.dut.clk)
+        await RisingEdge(self.dut.clk)
 
 
 class PacketGen:

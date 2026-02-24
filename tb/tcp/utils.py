@@ -1,6 +1,10 @@
 import socket
-from scapy.all import TCP, IP
+import cocotb
+from scapy.all import TCP, IP, TCP_client
+from cocotb.triggers import RisingEdge, ReadWrite
+from multiprocessing import Queue
 from cocotb.types import LogicArray
+
 
 class TcpPacketSV:
     """
@@ -35,14 +39,14 @@ class TcpPacketSV:
 
         # field defaults
         self.peer_addr = 0
-        self.payload_addr   = 0
-        self.payload_size   = 0
-        self.checksum       = 0
-        self.flags          = 0
-        self.peer_port      = 0
-        self.window         = 0
-        self.ack_num        = 0
-        self.sequence_num   = 0
+        self.payload_addr = 0
+        self.payload_size = 0
+        self.checksum = 0
+        self.flags = 0
+        self.peer_port = 0
+        self.window = 0
+        self.ack_num = 0
+        self.sequence_num = 0
 
     # -------- construction helpers --------
 
@@ -91,13 +95,14 @@ class TcpPacketSV:
         return LogicArray.from_unsigned(
             self.pack_int(),
             self.total_width(),
-              # packed structs map MSB→LSB; cocotb expects this
+            # packed structs map MSB→LSB; cocotb expects this
         )
 
     # -------- debug --------
 
     def __repr__(self):
-        fields = ", ".join(f"{f}={getattr(self,f)}" for f,_ in self.FIELD_LAYOUT)
+        fields = ", ".join(f"{f}={getattr(self,f)}" for f,
+                           _ in self.FIELD_LAYOUT)
         return f"TcpPacketSV({fields})"
 
 
@@ -167,14 +172,14 @@ class PacketTDecoder:
         pkt = {}
 
         pkt["peer_addr"] = reader.read_bits(32)
-        pkt["peer_port"]      = reader.read_bits(16)
-        pkt["payload_addr"]   = reader.read_bits(self.buff_width)
-        pkt["payload_size"]   = reader.read_bits(16)
-        pkt["checksum"]       = reader.read_bits(16)
-        pkt["flags"]          = reader.read_bits(8)
-        pkt["window"]         = reader.read_bits(16)
-        pkt["ack_num"]        = reader.read_bits(32)
-        pkt["sequence_num"]   = reader.read_bits(32)
+        pkt["peer_port"] = reader.read_bits(16)
+        pkt["payload_addr"] = reader.read_bits(self.buff_width)
+        pkt["payload_size"] = reader.read_bits(16)
+        pkt["checksum"] = reader.read_bits(16)
+        pkt["flags"] = reader.read_bits(8)
+        pkt["window"] = reader.read_bits(16)
+        pkt["ack_num"] = reader.read_bits(32)
+        pkt["sequence_num"] = reader.read_bits(32)
 
         return pkt
 
@@ -184,15 +189,15 @@ class PacketTDecoder:
         peer_addr = socket.inet_ntoa(pkt["peer_addr"].to_bytes(4))
         print(signal_value.buff)
         scap = IP(
-                src="0.0.0.0",
-                dst=peer_addr
+            src="0.0.0.0",
+            dst=peer_addr
         ) / TCP(
-                sport=80,
-                dport=pkt["peer_port"],
-                ack=pkt["ack_num"],
-                seq=pkt["sequence_num"],
-                flags=pkt["flags"]
-                )
+            sport=80,
+            dport=pkt["peer_port"],
+            ack=pkt["ack_num"],
+            seq=pkt["sequence_num"],
+            flags=pkt["flags"]
+        )
         return scap
 
 
@@ -208,10 +213,10 @@ class TcbDecoder:
 
         # base
         tcb["peer_addr"] = reader.read_bits(32)
-        tcb["peer_port"]    = reader.read_bits(16)
-        tcb["sequence_num"]   = reader.read_bits(32)
-        tcb["ack_num"]        = reader.read_bits(32)
-        tcb["window"]         = reader.read_bits(16)
+        tcb["peer_port"] = reader.read_bits(16)
+        tcb["sequence_num"] = reader.read_bits(32)
+        tcb["ack_num"] = reader.read_bits(32)
+        tcb["window"] = reader.read_bits(16)
 
         # to_be_sent
         tcb["to_be_sent"] = [
@@ -235,3 +240,104 @@ class TcbDecoder:
 
         return tcb
 
+
+class TCP_client_sim(TCP_client):
+    def __init__(self, sock, ready, ref, *args, **kargs):
+        self._sock = sock
+        ready.set()
+        ref.append(self)
+        super().__init__(*args, sock=self._sock, **kargs)
+
+    def parse_args(self, *args, **kargs):
+        print(f"TB: {self._sock}")
+        # Call parent with simulation IPs
+        super().parse_args(*args, debug=10, **kargs)
+
+    def _do_start(self, *args, **kargs):
+        class Dummy:
+            def set(self):
+                pass
+        ready = Dummy()
+        args = (ready,) + (args)
+        super().run(wait=False)
+        super()._do_control(*args, **kargs)
+
+    def syn_ack_timeout(self):
+        pass
+
+
+class TCPSimSock:
+    def __init__(self, sig_clk, sig_rdy, sig_pkt, sig_pkt_valid, sig_pkt_rx, sig_pkt_txen, sig_pkt_to_send):
+        self.from_hdl = Queue()
+        self.pkt_decoder = PacketTDecoder()
+        self.sig_clk = sig_clk
+        self.sig_rdy = sig_rdy
+        self.sig_pkt = sig_pkt
+        self.sig_pkt_valid = sig_pkt_valid
+        self.sig_pkt_rx = sig_pkt_rx
+        self.sig_pkt_tx_en = sig_pkt_txen
+        self.sig_pkt_to_send = sig_pkt_to_send
+        cocotb.start_soon(self.recv_async())
+
+    async def reset_pkt_sent(self):
+        await RisingEdge(self.sig_clk)
+        await ReadWrite()
+        self.sig_pkt_valid.value = 0
+        self.sig_pkt_rx.value = 0
+
+    def send(self, pkt):
+        cocotb.log.info("Simulator trying to send packet:")
+        cocotb.task.resume(self.send_pkt_to_hdl)(pkt, self.sig_clk, self.sig_rdy,
+                                                 self.sig_rdy, self.sig_pkt_valid, self.sig_pkt_rx)
+
+    async def send_pkt_to_hdl(self, pkt, sig_clk, sig_rdy, sig_pkt, sig_pkt_valid, sig_pkt_rx):
+        await RisingEdge(sig_clk)
+        while sig_rdy.value == 0:
+            await RisingEdge(sig_clk)
+            await ReadWrite()
+        cocotb.log.info("packet to HDL")
+        # pkt.show2()
+        sv_packet = TcpPacketSV.from_scapy(pkt, 2)
+        sig_pkt.value = sv_packet.to_binaryvalue()
+        sig_pkt_valid.value = 1
+        sig_pkt_rx.value = 1
+        await self.reset_pkt_sent()
+
+    async def recv_async(self):
+        while True:
+            await RisingEdge(self.sig_pkt_tx_en)
+            cocotb.log.info("Test Bench trying to send packet:")
+            # TODO: check no packet then just quickly return
+            s = self.pkt_decoder.signal_to_scapy(self.sig_pkt_to_send.value)
+            s.show2()
+            self.from_hdl.put(s, block=False)
+
+    async def recv_pkt_from_hdl(self):
+        await RisingEdge(self.sig_clk)
+        if self.from_hdl.empty():
+            return None
+        return self.from_hdl.get()
+
+    def recv(self):
+        return cocotb.task.resume(self.recv_pkt_from_hdl)()
+
+    @staticmethod
+    def select(sockets, remain=None):
+        # first element is "cmdin" we are trying to return ourselves back to Automaton i.e. listen_socket
+        if sockets[0].empty():
+            return sockets[1:]
+        if hasattr(sockets[0], "from_hdl") and sockets[0].from_hdl.empty():
+            return sockets[1:]
+        return sockets
+
+    def close(self):
+        self.closed = True
+        pass
+
+    def __del__(self):
+        pass
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # type: (Optional[Type[BaseException]], Optional[BaseException], Optional[Any]) -> None  # noqa: E501
+        """Close the socket"""
+        pass
