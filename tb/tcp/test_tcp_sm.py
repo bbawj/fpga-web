@@ -16,7 +16,7 @@ class TB(TCPSimSock):
         self.log.setLevel(logging.DEBUG)
         cocotb.start_soon(Clock(dut.clk, 8, units='ns').start())
         super().__init__(self.dut.clk, self.dut.tcp_arb_rdy,
-                         self.dut.packet, self.dut.tcp_packet_valid, self.dut.tcp_packet_rx, self.dut.pkt_tx_en, self.dut.pkt_to_send)
+                         self.dut.packet, self.dut.tcp_packet_rx, self.dut.pkt_tx_en, self.dut.pkt_to_send)
 
     async def reset(self, signal):
         signal.setimmediatevalue(0)
@@ -28,7 +28,6 @@ class TB(TCPSimSock):
         await RisingEdge(self.dut.clk)
         signal.value = 0
         signal.value = 0
-        self.dut.tcp_packet_valid.value = 0
         self.dut.tcp_packet_rx.value = 0
         await RisingEdge(self.dut.clk)
         await RisingEdge(self.dut.clk)
@@ -43,8 +42,8 @@ class TB(TCPSimSock):
             assert self.dut.sm_accept_payload.value == 1
             assert self.dut.sm_reject_payload.value == 0
 
-    async def send_pkt_to_hdl(self, pkt, sig_clk, sig_rdy, sig_pkt, sig_pkt_valid, sig_pkt_rx):
-        await super().send_pkt_to_hdl(pkt, sig_clk, sig_rdy, sig_pkt, sig_pkt_valid, sig_pkt_rx)
+    async def send_pkt_to_hdl(self, pkt):
+        await super().send_pkt_to_hdl(pkt)
 
         await RisingEdge(self.dut.clk)
         await RisingEdge(self.dut.clk)
@@ -75,7 +74,6 @@ async def tcp_tcb_creation(dut):
     packet.show2()
     sv_packet = TcpPacketSV.from_scapy(packet, 2)
     tb.dut.packet.value = sv_packet.to_binaryvalue()
-    tb.dut.tcp_packet_valid.value = 1
     tb.dut.tcp_packet_rx.value = 1
     await RisingEdge(tb.dut.clk)
     await RisingEdge(tb.dut.clk)

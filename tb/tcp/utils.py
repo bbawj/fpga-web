@@ -267,13 +267,12 @@ class TCP_client_sim(TCP_client):
 
 
 class TCPSimSock:
-    def __init__(self, sig_clk, sig_rdy, sig_pkt, sig_pkt_valid, sig_pkt_rx, sig_pkt_txen, sig_pkt_to_send):
+    def __init__(self, sig_clk, sig_rdy, sig_pkt, sig_pkt_rx, sig_pkt_txen, sig_pkt_to_send):
         self.from_hdl = Queue()
         self.pkt_decoder = PacketTDecoder()
         self.sig_clk = sig_clk
         self.sig_rdy = sig_rdy
         self.sig_pkt = sig_pkt
-        self.sig_pkt_valid = sig_pkt_valid
         self.sig_pkt_rx = sig_pkt_rx
         self.sig_pkt_tx_en = sig_pkt_txen
         self.sig_pkt_to_send = sig_pkt_to_send
@@ -282,25 +281,22 @@ class TCPSimSock:
     async def reset_pkt_sent(self):
         await RisingEdge(self.sig_clk)
         await ReadWrite()
-        self.sig_pkt_valid.value = 0
         self.sig_pkt_rx.value = 0
 
     def send(self, pkt):
         cocotb.log.info("Simulator trying to send packet:")
-        cocotb.task.resume(self.send_pkt_to_hdl)(pkt, self.sig_clk, self.sig_rdy,
-                                                 self.sig_rdy, self.sig_pkt_valid, self.sig_pkt_rx)
+        cocotb.task.resume(self.send_pkt_to_hdl)(pkt)
 
-    async def send_pkt_to_hdl(self, pkt, sig_clk, sig_rdy, sig_pkt, sig_pkt_valid, sig_pkt_rx):
-        await RisingEdge(sig_clk)
-        while sig_rdy.value == 0:
-            await RisingEdge(sig_clk)
+    async def send_pkt_to_hdl(self, pkt):
+        await RisingEdge(self.sig_clk)
+        while self.sig_rdy.value == 0:
+            await RisingEdge(self.sig_clk)
             await ReadWrite()
         cocotb.log.info("packet to HDL")
         # pkt.show2()
         sv_packet = TcpPacketSV.from_scapy(pkt, 2)
-        sig_pkt.value = sv_packet.to_binaryvalue()
-        sig_pkt_valid.value = 1
-        sig_pkt_rx.value = 1
+        self.sig_pkt.value = sv_packet.to_binaryvalue()
+        self.sig_pkt_rx.value = 1
         await self.reset_pkt_sent()
 
     async def recv_async(self):

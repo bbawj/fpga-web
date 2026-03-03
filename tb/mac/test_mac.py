@@ -4,6 +4,7 @@ import logging
 import os
 import cocotb
 import pytest
+from scapy.all import Raw, RandString, Ether, TCP, IP
 from cocotb_tools.runner import get_runner
 from cocotb.utils import get_sim_time, get_sim_steps
 from cocotb.clock import Clock, Timer
@@ -24,6 +25,7 @@ class TB:
 
         if speed_100:
             cocotb.start_soon(Clock(dut.clk, 40, units='ns').start())
+            cocotb.start_soon(self._run_clocks(dut.phy_txc, 90, 40))
         else:
             cocotb.start_soon(self._run_clocks(dut.clk, 0, 8))
             cocotb.start_soon(self._run_clocks(dut.phy_txc, 90, 8))
@@ -38,11 +40,9 @@ class TB:
         if phase > 0:
             await Timer(phase/360.0 * period, 'ns')
         while True:
-            port.value = 1
-            port.value = 1
+            port.value = cocotb.handle.Immediate(1)
             await t
-            port.value = 0
-            port.value = 0
+            port.value = cocotb.handle.Immediate(0)
             await t
 
     async def reset(self):
@@ -117,6 +117,21 @@ async def arp_reply(dut):
         assert rx_frame.error is None
 
 
+@cocotb.test()
+async def tcp(dut):
+    speed_100 = os.getenv("SPEED_100M", None)
+    tb = TB(dut, speed_100 is not None)
+
+    await tb.reset()
+    payload = Raw(RandString(size=120))
+    test_data = Ether(dst="de:ad:be:ef:ca:fe") / IP() / TCP(sport=5000) / payload
+    test_frame = GmiiFrame.from_payload(bytes(test_data))
+    await tb.rgmii_phy.rx.send(test_frame)
+    rx_frame = await with_timeout(tb.rgmii_phy.tx.recv(), 50000, "ns")
+    rx = Ether(rx_frame.get_payload())
+    rx.show2()
+
+
 def arp_payload(op, sha, tha, spa, tpa):
     hw_type = bytearray.fromhex("0001")
     protocol = bytearray.fromhex("0800")
@@ -143,29 +158,35 @@ def mac_payload(dest, src, ether_type, payload):
 
 @pytest.mark.parametrize("speed_100", [False])
 def test_simple_dff_runner(speed_100):
-    sim = os.getenv("SIM", "icarus")
+    sim = os.getenv("SIM", "verilator")
 
     source_folder = "../../rtl"
-    sources = [f"{source_folder}/mac_encode.sv",
-               f"{source_folder}/mac_decode.sv",
-               f"./test_mac.sv",
-               f"{source_folder}/synchronizer.sv",
-               f"{source_folder}/ebr.sv",
-               f"{source_folder}/tcp.sv",
-               f"{source_folder}/mac.sv",
-               f"{source_folder}/mac_tx.sv",
-               f"{source_folder}/oddr.sv",
-               f"{source_folder}/iddr.sv",
-               f"{source_folder}/ip_encode.sv",
-               f"{source_folder}/tcp_encode.sv",
-               f"{source_folder}/ip_decode.sv",
-               f"{source_folder}/arp_decode.sv",
-               f"{source_folder}/arp_encode.sv",
-               f"{source_folder}/rgmii_rcv.sv",
-               f"{source_folder}/rgmii_tx.sv",
-               f"{source_folder}/clk_gen.sv",
-               f"{source_folder}/clk_divider.sv",
-               f"{source_folder}/crc32.sv"]
+    sources = [
+        f"../../config.vlt",
+        f"{source_folder}/mac_encode.sv",
+        f"{source_folder}/mac_decode.sv",
+        f"./test_mac.sv",
+        f"{source_folder}/synchronizer.sv",
+        f"{source_folder}/ebr.sv",
+        f"{source_folder}/tcp.sv",
+        f"{source_folder}/mac.sv",
+        f"{source_folder}/mac_tx.sv",
+        f"{source_folder}/oddr.sv",
+        f"{source_folder}/iddr.sv",
+        f"{source_folder}/lfsr_rng.sv",
+        f"{source_folder}/ip_encode.sv",
+        f"{source_folder}/tcp_encode.sv",
+        f"{source_folder}/tcp_arbiter.sv",
+        f"{source_folder}/tcp_sm.sv",
+        f"{source_folder}/tcp_decode.sv",
+        f"{source_folder}/ip_decode.sv",
+        f"{source_folder}/arp_decode.sv",
+        f"{source_folder}/arp_encode.sv",
+        f"{source_folder}/rgmii_rcv.sv",
+        f"{source_folder}/rgmii_tx.sv",
+        f"{source_folder}/clk_gen.sv",
+        f"{source_folder}/clk_divider.sv",
+        f"{source_folder}/crc32.sv"]
 
     runner = get_runner(sim)
     runner.build(
@@ -177,7 +198,8 @@ def test_simple_dff_runner(speed_100):
         verbose=True,
         defines={"SPEED_100M": "True"} if speed_100 else {},
         includes=[f"{source_folder}/"],
-        build_args=[
+        build_args=["--threads", "8", "--trace-fst",
+                    "--trace-structs"] if sim == "verilator" else [
             "-y/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/"],
         timescale=("1ns", "1ps"),
     )

@@ -19,7 +19,9 @@
 `define SELECT_BYTE_LSB(data, end_count, start_count) \
   data[8*(end_count - start_count + 1) - 1 -: 8]
 `define SELECT_BYTE_MSB(data, end_count, start_count) \
-  data[$bits(data) - 8*(end_count - start_count) - 1 -: 8]
+  /* verilator lint_off WIDTHEXPAND */ \
+  data[$bits(data) - 8*(end_count - start_count) - 1 -: 8] \
+  /* verilator lint_on WIDTHEXPAND */
 `endif
 
 `ifdef DEBUG

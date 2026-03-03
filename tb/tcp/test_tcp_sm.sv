@@ -1,7 +1,6 @@
 module test_tcp_sm (
     input rst,
     input clk,
-    input tcp_packet_valid,
     input tcp_packet_rx,
     input tcp_packet_tx,
     input tcp_echo_en,
@@ -20,7 +19,6 @@ module test_tcp_sm (
   tcp_arbiter _arb (
       .clk(clk),
       .rst(rst),
-      .valid(tcp_packet_valid),
       .rdy(tcp_arb_rdy),
       .is_tx(tcp_packet_tx),
       .to_send_payload_addr(),
@@ -32,8 +30,8 @@ module test_tcp_sm (
       .i_tcb(tcb_sm),
       .tcp_echo_en(tcp_echo_en),
 
-      .tcp_is_rx(tcp_sm_is_rx),
-      .tcp_is_tx(tcp_sm_is_tx),
+      .sm_tcp_is_rx(tcp_sm_is_rx),
+      .sm_tcp_is_tx(tcp_sm_is_tx),
       .tcp_payload_valid(tcp_payload_valid),
       .tcp_payload_addr(tcp_payload_addr),
       .o_tcb(tcb_arb)

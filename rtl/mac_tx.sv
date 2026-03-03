@@ -17,7 +17,7 @@ module mac_tx #(
     // RD_EN asserted to get data from SDRAM onto tcp_payload_data
     input reg tcp_payload_rd_valid,
     input reg [31:0] tcp_payload_rd_data,
-    output reg [31:0] tcp_payload_rd_en,
+    output reg tcp_payload_rd_en,
     output reg [18:0] tcp_payload_rd_ad,
 
     output reg [3:0] phy_txd,
@@ -50,13 +50,12 @@ module mac_tx #(
       .rd_data(tcp_outgoing_rd_data)
   );
   reg tcp_outgoing_buffer_start_0, tcp_outgoing_buffer_start_1, tcp_outgoing_buffer_start_rising;
-  reg [15:0] pkt_payload_size;
   synchronizer #(
-      .INPUT_WIDTH(17)
+      .INPUT_WIDTH(1), .SYNC_WIDTH(3)
   ) _sync (
       .clk(sdram_clk),
-      .sig({send_tcp, pkt.payload_size}),
-      .q  ({tcp_outgoing_buffer_start_0, pkt_payload_size})
+      .sig(send_tcp),
+      .q  (tcp_outgoing_buffer_start_0)
   );
   reg [15:0] payload_counter = '0;
   always @(posedge sdram_clk) begin
@@ -73,7 +72,7 @@ module mac_tx #(
           tcp_payload_rd_en <= 1'b1;
           tcp_payload_rd_ad <= pkt.payload_addr;
           payload_buff_state <= BUFF_STATE_START;
-          payload_counter <= pkt_payload_size;
+          payload_counter <= pkt.payload_size;
         end
       end
       BUFF_STATE_START: begin
@@ -100,7 +99,7 @@ module mac_tx #(
 
 
   reg mac_encode_en = '0;
-  reg [7:0] mac_payload = '0;
+  reg [7:0] mac_payload;
   reg [47:0] mac_dest = '0;
   reg mac_send_payload;
   reg [15:0] ethertype = '0;
@@ -257,7 +256,7 @@ module mac_tx #(
     end
   end
 
-  always @* begin
+  always_comb begin
     mac_payload = '0;
     if (mac_send_payload) begin
       case (tx_state)
@@ -273,6 +272,7 @@ module mac_tx #(
         PAYLOAD: begin
           mac_payload = tcp_outgoing_rd_data;
         end
+        default: mac_payload = '0;
       endcase
     end
   end

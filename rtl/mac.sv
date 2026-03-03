@@ -48,7 +48,10 @@ module mac (
 
 `else
 
-  reg send_arp, send_tcp;
+  reg send_arp, send_tcp = '0;
+  reg tcp_tx_payload_rd_en;
+  reg [18:0] tcp_tx_payload_rd_ad;
+  tcp::packet_t tcp_tx_packet;
   mac_tx #(
       .MY_MAC_ADDR(LOC_MAC_ADDR),
       .MY_IP_ADDR (LOC_IP_ADDR)
@@ -62,12 +65,12 @@ module mac (
       .i_arp_encode_tha(arp_encode_tha),
       .i_arp_encode_tpa(arp_encode_tpa),
 
-      .send_tcp(),
-      .pkt(),
-      .tcp_payload_rd_valid(),
-      .tcp_payload_rd_data(),
-      .tcp_payload_rd_en(),
-      .tcp_payload_rd_ad(),
+      .send_tcp(send_tcp),
+      .pkt(tcp_tx_packet),
+      .tcp_payload_rd_valid(1'b1),
+      .tcp_payload_rd_data(tcp_tx_payload_rd_data),
+      .tcp_payload_rd_en(tcp_tx_payload_rd_en),
+      .tcp_payload_rd_ad(tcp_tx_payload_rd_ad),
 
       .phy_txd  (phy_txd),
       .phy_txctl(phy_txctl)
@@ -87,6 +90,18 @@ module mac (
       .rx_er(rx_er)
   );
 
+
+  reg [7:0] rxd_delayed;
+  reg rx_dv_delayed;
+  delay #(
+      .WIDTH(9),
+      .DEPTH(4)
+  ) _delay (
+      .clk(rxc),
+      .rst(rst),
+      .data_in({rxd, rx_dv}),
+      .data_out({rxd_delayed, rx_dv_delayed})
+  );
   reg arp_decode_valid;
   reg ip_valid;
   reg rgmii_rcv_busy;
@@ -95,10 +110,12 @@ module mac (
   mac_decode #(
       .MAC_ADDR(LOC_MAC_ADDR)
   ) _mac_decode (
-      .clk  (rxc),
-      .rst  (rst),
-      .rxd  (rxd),
-      .rx_dv(rx_dv),
+      .clk(rxc),
+      .rst(rst),
+      .rxd_realtime(rxd),
+      .rx_dv_realtime(rx_dv),
+      .rxd(rxd_delayed),
+      .rx_dv(rx_dv_delayed),
 
       .sa(mac_sa),
       .busy(rgmii_rcv_busy),
@@ -109,20 +126,97 @@ module mac (
 
   reg ip_err;
   reg ip_done;
+  reg [3:0] ip_ihl;
   reg [31:0] ip_sa;
   reg [31:0] ip_da;
+  reg [15:0] ip_payload_size;
   ip_decode ip_decoder (
-      .clk  (rxc),
-      .rst  (rst),
+      .clk(rxc),
+      .rst(rst),
       .valid(ip_valid),
-      .din  (rxd),
-
-      .sa  (ip_sa),
-      .da  (ip_da),
-      .err (ip_err),
+      .din(rxd_delayed),
+      .packet_size(ip_payload_size),
+      .sa(ip_sa),
+      .da(ip_da),
+      .ihl(ip_ihl),
+      .err(ip_err),
       .done(ip_done)
   );
 
+  tcp::packet_t packet;
+  reg [7:0] tcp_payload;
+  reg tcp_decode_payload_valid, tcp_decode_done, tcp_decode_err;
+  tcp_decode tcp_dec (
+      .clk(rxc),
+      .rst(rst),
+      .valid(ip_done),
+      .din(rxd_delayed),
+      .ip_sa(ip_sa),
+      .ip_da(ip_da),
+      .ip_ihl(ip_ihl),
+      .ip_payload_size(ip_payload_size),
+
+      .source_port(packet.peer_port),
+      .dest_port(),
+      .sequence_num(packet.sequence_num),
+      .flags(packet.flags),
+      .ack_num(packet.ack_num),
+      .window(packet.window),
+      .payload(tcp_payload),
+      .payload_valid(tcp_decode_payload_valid),
+      .payload_size(packet.payload_size),
+
+      .done(tcp_decode_done),
+      .err (tcp_decode_err)
+  );
+
+  reg sm_accept_payload, sm_reject_payload;
+  reg tcp_arb_rdy, tcp_payload_valid;
+  tcp::tcb_t tcb_sm, tcb_arb;
+  reg tcp_sm_is_rx, tcp_sm_is_tx;
+  reg [31:0] tcp_tx_payload_rd_data;
+  tcp_arbiter _arb (
+      .rxc(rxc),
+      .tcp_rx_payload_valid(tcp_decode_payload_valid),
+      .tcp_rx_payload_data(tcp_payload),
+      .tcp_rx_payload_rd_en(tcp_tx_payload_rd_en),
+      .tcp_rx_payload_rd_data(tcp_tx_payload_rd_data),
+      .clk(clk),
+      .rst(rst),
+      .rdy(tcp_arb_rdy),
+      .tcp_echo_en(),
+      .is_tx(),
+      .to_send_peer_addr(),
+      .to_send_peer_port(),
+      .to_send_payload_addr(),
+      .to_send_payload_size(),
+      .is_rx(tcp_decode_done && !tcp_decode_err),
+      .pkt(packet),
+      .sm_reject_payload(sm_reject_payload),
+      .sm_accept_payload(sm_accept_payload),
+      .i_tcb(tcb_sm),
+
+      .sm_tcp_is_rx(tcp_sm_is_rx),
+      .sm_tcp_is_tx(tcp_sm_is_tx),
+      .tcp_payload_valid(tcp_payload_valid),
+      // .tcp_payload_addr(),
+      .o_tcb(tcb_arb)
+  );
+
+  tcp_sm sm (
+      .clk(clk),
+      .rst(rst),
+      .current_tcb(tcb_arb),
+      .is_tx(tcp_sm_is_tx),
+      .is_rx(tcp_sm_is_rx),
+      .incoming_pkt(packet),
+
+      .tx_en(send_tcp),
+      .pkt_to_send(tcp_tx_packet),
+      .next_tcb(tcb_sm),
+      .accept_payload(sm_accept_payload),
+      .reject_payload(sm_reject_payload)
+  );
   reg arp_err;
   reg arp_done;
   reg [47:0] arp_sha, arp_tha, arp_encode_tha;
@@ -131,7 +225,7 @@ module mac (
       .clk  (rxc),
       .rst  (rst),
       .valid(arp_decode_valid),
-      .din  (rxd),
+      .din  (rxd_delayed),
       .sha  (arp_sha),
       .tha  (arp_tha),
       .spa  (arp_spa),
@@ -154,7 +248,7 @@ module mac (
 `endif
 
   always @(posedge clk) begin
-    send_arp <= 0;
+    send_arp <= '0;
     if (arp_done && arp_tpa == LOC_IP_ADDR) begin
       send_arp <= 1;
       arp_encode_tpa <= arp_spa;
