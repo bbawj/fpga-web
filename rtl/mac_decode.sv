@@ -74,9 +74,6 @@ reg [15:0] counter = '0;
 always @(posedge clk) begin
     if (rst || ~rx_dv) begin 
       state <= IDLE;
-      da <= '0;
-      sa <= '0;
-      ether_type <= '0;
       counter <= '0;
 
       ip_valid <= 0;
@@ -86,8 +83,6 @@ always @(posedge clk) begin
         IDLE: begin 
           if (rxd == 8'h55) state <= PREAMBLE;
           else begin
-            da <= '0;
-            sa <= '0;
             counter <= '0;
           end
         end

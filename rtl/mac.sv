@@ -106,6 +106,8 @@ module mac (
   reg ip_valid;
   reg rgmii_rcv_busy;
   reg rgmii_rcv_crc_err;
+  // NOTE: since the use case is behind a reverse proxy, there is only ever
+  // 1 MAC_SA we will receive, no need for fancy mac address storage
   reg [47:0] mac_sa;
   mac_decode #(
       .MAC_ADDR(LOC_MAC_ADDR)

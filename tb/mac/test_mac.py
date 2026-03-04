@@ -124,12 +124,21 @@ async def tcp(dut):
 
     await tb.reset()
     payload = Raw(RandString(size=120))
-    test_data = Ether(dst="de:ad:be:ef:ca:fe") / IP() / TCP(sport=5000) / payload
+    dst_mac = ":".join([LOC_MAC_ADDR[i:i+2]
+                       for i in range(0, len(LOC_MAC_ADDR)-1, 2)])
+    src_mac = ":".join([MAC_SRC[i:i+2]
+                       for i in range(0, len(MAC_SRC)-1, 2)])
+    print(MAC_SRC[1:3])
+    test_data = Ether(dst=dst_mac, src=src_mac) / \
+        IP() / TCP(sport=5000) / payload
+    test_data.show2()
     test_frame = GmiiFrame.from_payload(bytes(test_data))
     await tb.rgmii_phy.rx.send(test_frame)
     rx_frame = await with_timeout(tb.rgmii_phy.tx.recv(), 50000, "ns")
     rx = Ether(rx_frame.get_payload())
     rx.show2()
+    assert rx.dst == src_mac.lower()
+    assert rx[TCP].dport == 5000
 
 
 def arp_payload(op, sha, tha, spa, tpa):

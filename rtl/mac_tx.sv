@@ -1,7 +1,6 @@
 module mac_tx #(
     parameter [47:0] MY_MAC_ADDR = 0,
-    parameter [31:0] MY_IP_ADDR  = 0,
-    parameter [15:0] MY_TCP_PORT = 0
+    parameter [31:0] MY_IP_ADDR  = 0
 ) (
     input clk,
     input sdram_clk,
@@ -153,7 +152,6 @@ module mac_tx #(
   );
 
   reg tcp_encode_en, tcp_encode_done;
-  reg [15:0] tcp_encode_source_port;
   reg [15:0] tcp_encode_dest_port;
   reg [31:0] tcp_encode_sequence_num;
   reg [31:0] tcp_encode_ack_num;
@@ -169,7 +167,6 @@ module mac_tx #(
       .ip_da(ip_encode_da),
       .ip_packet_len(ip_encode_len),
 
-      .source_port(tcp_encode_source_port),
       .dest_port(tcp_encode_dest_port),
       .sequence_num(tcp_encode_sequence_num),
       .ack_num(tcp_encode_ack_num),
@@ -224,13 +221,13 @@ module mac_tx #(
         IP: begin
           if (mac_send_payload) begin
             ip_encode_en  <= 1'b1;
-            ip_encode_len <= pkt.payload_size + 'd20;
+            // include TCP header
+            ip_encode_len <= pkt.payload_size + 'd40;
             ip_encode_sa  <= MY_IP_ADDR;
             ip_encode_da  <= pkt.peer_addr;
           end
           if (ip_encode_done) begin
             tcp_encode_en <= 1'b1;
-            tcp_encode_source_port <= MY_TCP_PORT;
             tcp_encode_dest_port <= pkt.peer_port;
             tcp_encode_sequence_num <= pkt.sequence_num;
             tcp_encode_ack_num <= pkt.ack_num;
