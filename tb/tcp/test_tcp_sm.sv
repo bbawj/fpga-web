@@ -18,22 +18,30 @@ module test_tcp_sm (
   reg tcp_sm_is_rx, tcp_sm_is_tx;
   tcp_arbiter _arb (
       .clk(clk),
+      .rxc(clk),
       .rst(rst),
-      .rdy(tcp_arb_rdy),
-      .is_tx(tcp_packet_tx),
-      .to_send_payload_addr(),
-      .to_send_payload_size(),
       .is_rx(tcp_packet_rx),
-      .pkt(packet),
+      .tcp_rx_payload_valid(),
+      .tcp_rx_payload_data(),
+      .tcp_rx_payload_rd_en(),
+      .tcp_rx_payload_rd_data(),
+
       .sm_reject_payload(sm_reject_payload),
       .sm_accept_payload(sm_accept_payload),
+
+      .is_tx(tcp_packet_tx),
+      .to_send_peer_addr(),
+      .to_send_peer_port(),
+      .to_send_payload_addr(),
+      .to_send_payload_size(),
+      .pkt(packet),
       .i_tcb(tcb_sm),
       .tcp_echo_en(tcp_echo_en),
 
+      .rdy(tcp_arb_rdy),
       .sm_tcp_is_rx(tcp_sm_is_rx),
       .sm_tcp_is_tx(tcp_sm_is_tx),
       .tcp_payload_valid(tcp_payload_valid),
-      .tcp_payload_addr(tcp_payload_addr),
       .o_tcb(tcb_arb)
   );
 

@@ -1,0 +1,30 @@
+module test_tcp_integration (
+    input wire clk,
+    input wire rst,
+    input wire tcp_echo_en,
+
+    output reg [3:0] phy_txd,
+    output reg phy_txctl,
+    input wire phy_txc,
+    input wire [3:0] phy_rxd,
+    input wire phy_rxctl,
+    input wire phy_rxc
+);
+
+  mac mac_instance (
+      .clk(clk),
+      .rst(rst),
+      .led(),
+      .tcp_echo_en(tcp_echo_en),
+
+      .uart_tx  (),
+      .phy_txd  (phy_txd),
+      .phy_txctl(phy_txctl),
+
+      .phy_rxd  (phy_rxd),
+      .phy_rxctl(phy_rxctl),
+      .phy_rxc  (phy_rxc)
+  );
+
+endmodule
+

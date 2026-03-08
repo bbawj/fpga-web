@@ -90,7 +90,7 @@ module test_tcp (
       .sm_accept_payload(sm_accept_payload),
       .i_tcb(),
 
-      .tcp_is_rx(),
+      .sm_tcp_is_rx(),
       .tcp_payload_valid(),
       .tcp_payload_addr(),
       .o_tcb()

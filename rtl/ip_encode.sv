@@ -25,9 +25,9 @@ module ip_encode (
   end
 
   always @(posedge clk) begin
-    if (rst || !en) begin
+    if (rst) begin
       dout <= '0;
-      done <= '1;
+      done <= '0;
       counter <= '0;
     end else if (en) begin
       done <= '0;
@@ -74,6 +74,12 @@ module ip_encode (
           dout <= '0;
         end
       endcase
+    end else if (!en) begin
+      // since the first byte is hardcoded, we can reduce 1 cycle latency by
+      // holding the first byte on dout stable at all times
+      dout <= 'h45;
+      done <= '0;
+      counter <= 'd1;
     end
   end
 

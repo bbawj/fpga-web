@@ -80,6 +80,7 @@ module tcp_encode #(
     end else begin
       dout <= MY_TCP_PORT[15:8];
       counter <= 'd1;
+      done <= '0;
     end
   end
 

@@ -38,29 +38,71 @@ module ebr #(
   end
 
   // Read side - assembles 4x 8-bit words into 32-bit
-  localparam logic [SIZE_WIDTH-1:0] RATIO = (SIZE_WIDTH'(RD_WIDTH / WR_WIDTH));
+  localparam logic WIDE_READ = RD_WIDTH >= WR_WIDTH;
+  localparam logic [SIZE_WIDTH-1:0] RATIO = WIDE_READ ? (SIZE_WIDTH'(RD_WIDTH / WR_WIDTH)) : (SIZE_WIDTH'(WR_WIDTH / RD_WIDTH));
   reg rd_started = '0;
-  reg [SIZE_WIDTH-1:0] rd_ptr;
+  reg [SIZE_WIDTH-1:0] rd_ptr = '0;
 
-  always @(posedge rd_clk) begin
-    if (rd_en) begin
-      if (!rd_started) begin
-        rd_ptr <= rd_addr + 1;
-        for (logic [SIZE_WIDTH-1:0] i = 0; i < RATIO; i++) begin
-          rd_data[i*WR_WIDTH+:WR_WIDTH] <= mem[rd_ptr+i];
+  generate
+    if (WIDE_READ) begin : g_wide_read
+      always @(posedge rd_clk) begin
+        if (rd_en) begin
+          if (!rd_started) begin
+            rd_ptr <= rd_addr + 1;
+            for (logic [SIZE_WIDTH-1:0] i = 0; i < RATIO; i++) begin
+              rd_data[i*WR_WIDTH+:WR_WIDTH] <= mem[rd_addr+i];
+            end
+            rd_ptr <= rd_ptr + RATIO;
+            rd_started <= 1;
+          end else begin
+            for (logic [SIZE_WIDTH-1:0] i = 0; i < RATIO; i++) begin
+              rd_data[i*WR_WIDTH+:WR_WIDTH] <= mem[rd_ptr+i];
+            end
+            rd_ptr <= rd_ptr + RATIO;
+          end
+        end else begin
+          rd_started <= 0;
+          rd_ptr <= 0;
+          for (logic [SIZE_WIDTH-1:0] i = 0; i < RATIO; i++) begin
+            rd_data[i*WR_WIDTH+:WR_WIDTH] <= mem[i];
+          end
         end
-        rd_ptr <= rd_ptr + RATIO;
-        rd_started <= 1;
-      end else begin
-        for (logic [SIZE_WIDTH-1:0] i = 0; i < RATIO; i++) begin
-          rd_data[i*WR_WIDTH+:WR_WIDTH] <= mem[rd_ptr+i];
-        end
-        rd_ptr <= rd_ptr + RATIO;
       end
-    end else begin
-      rd_started <= 0;
-      rd_ptr <= 0;
-      rd_data <= 0;
+    end else begin : g_narrow_read
+      // RD_WIDTH < WR_WIDTH
+      // Each memory word contains RATIO narrow slices.
+      // rd_addr selects the memory word; a sub-counter selects the slice.
+      // rd_ptr tracks the current memory word index.
+
+      logic [$clog2(RATIO)-1:0] slice_idx;
+
+      always @(posedge rd_clk) begin
+        if (rd_en) begin
+          if (!rd_started) begin
+            rd_data    <= mem[rd_addr][0+:RD_WIDTH];  // slice 0 of addressed word
+            slice_idx  <= 1;
+            rd_ptr     <= rd_addr;
+            rd_started <= 1;
+          end else begin
+            /* verilator lint_off WIDTHEXPAND */
+            if (slice_idx == RATIO - 'd1) begin
+              /* verilator lint_on WIDTHEXPAND */
+              // Last slice of current word — move to next word, reset slice
+              rd_data   <= mem[rd_ptr][slice_idx*RD_WIDTH +: RD_WIDTH];
+              rd_ptr    <= rd_ptr + 1;
+              slice_idx <= 0;
+            end else begin
+              rd_data   <= mem[rd_ptr][slice_idx*RD_WIDTH+:RD_WIDTH];
+              slice_idx <= slice_idx + 1;
+            end
+          end
+        end else begin
+          rd_started <= 0;
+          rd_ptr     <= 0;
+          slice_idx  <= 0;
+          rd_data    <= mem[0][0+:RD_WIDTH];
+        end
+      end
     end
-  end
+  endgenerate
 endmodule

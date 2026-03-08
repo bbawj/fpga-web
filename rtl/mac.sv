@@ -2,8 +2,9 @@
 `include "utils.svh"
 
 module mac (
-    input  wire clk,
-    input  wire rst,
+    input wire clk,
+    input wire rst,
+    input tcp_echo_en,
     output wire led,
     output wire uart_tx,
 
@@ -48,16 +49,16 @@ module mac (
 
 `else
 
-  reg send_arp, send_tcp = '0;
-  reg tcp_tx_payload_rd_en;
+  reg send_arp, send_tcp, tcp_empty = '0;
+  reg pkt_rd_en, tcp_tx_payload_rd_en = '0;
   reg [18:0] tcp_tx_payload_rd_ad;
-  tcp::packet_t tcp_tx_packet;
+  tcp::packet_t tcp_tx_packet, tcp_tx_packet_pending;
   mac_tx #(
       .MY_MAC_ADDR(LOC_MAC_ADDR),
       .MY_IP_ADDR (LOC_IP_ADDR)
   ) tx (
-      .clk(clk),
-      .sdram_clk(),
+      .phy_txc(clk),
+      .sdram_clk(clk),
       .rst(rst),
       .i_mac_da(mac_sa),
 
@@ -65,7 +66,8 @@ module mac (
       .i_arp_encode_tha(arp_encode_tha),
       .i_arp_encode_tpa(arp_encode_tpa),
 
-      .send_tcp(send_tcp),
+      .tcp_empty(tcp_empty),
+      .pkt_rd_en(pkt_rd_en),
       .pkt(tcp_tx_packet),
       .tcp_payload_rd_valid(1'b1),
       .tcp_payload_rd_data(tcp_tx_payload_rd_data),
@@ -129,7 +131,7 @@ module mac (
   reg ip_err;
   reg ip_done;
   reg [3:0] ip_ihl;
-  reg [31:0] ip_sa;
+  // reg [31:0] ip_sa;
   reg [31:0] ip_da;
   reg [15:0] ip_payload_size;
   ip_decode ip_decoder (
@@ -138,7 +140,7 @@ module mac (
       .valid(ip_valid),
       .din(rxd_delayed),
       .packet_size(ip_payload_size),
-      .sa(ip_sa),
+      .sa(packet.peer_addr),
       .da(ip_da),
       .ihl(ip_ihl),
       .err(ip_err),
@@ -153,7 +155,7 @@ module mac (
       .rst(rst),
       .valid(ip_done),
       .din(rxd_delayed),
-      .ip_sa(ip_sa),
+      .ip_sa(packet.peer_addr),
       .ip_da(ip_da),
       .ip_ihl(ip_ihl),
       .ip_payload_size(ip_payload_size),
@@ -186,7 +188,7 @@ module mac (
       .clk(clk),
       .rst(rst),
       .rdy(tcp_arb_rdy),
-      .tcp_echo_en(),
+      .tcp_echo_en(tcp_echo_en),
       .is_tx(),
       .to_send_peer_addr(),
       .to_send_peer_port(),
@@ -214,10 +216,28 @@ module mac (
       .incoming_pkt(packet),
 
       .tx_en(send_tcp),
-      .pkt_to_send(tcp_tx_packet),
+      .pkt_to_send(tcp_tx_packet_pending),
       .next_tcb(tcb_sm),
       .accept_payload(sm_accept_payload),
       .reject_payload(sm_reject_payload)
+  );
+
+  // Handle up to 2 in flight outgoing packets since we do not implement any
+  // delayed ACK, every received packet will have 1 ACK reply and if the
+  // response from our application is too quick there needs to be a buffer
+  fifo #(
+      .DATA_WIDTH($bits(tcp::packet_t)),
+      .DEPTH(2)
+  ) outgoing_pkt_queue (
+      .clk  (clk),
+      .rst  (rst),
+      .wr_en(send_tcp),
+      .din  (tcp_tx_packet_pending),
+      .full (),
+      .rd_en(pkt_rd_en),
+      .dout (tcp_tx_packet),
+      .empty(tcp_empty),
+      .count()
   );
   reg arp_err;
   reg arp_done;

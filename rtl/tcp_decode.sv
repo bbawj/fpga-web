@@ -95,7 +95,10 @@ module tcp_decode #(
               'd4:  dest_port <= working[15:0];
               'd8:  sequence_num <= working;
               'd12: ack_num <= working;
-              'd13: data_offset <= working[7:4];
+              'd13: begin
+                data_offset  <= working[7:4];
+                payload_size <= payload_size - data_offset * 4;
+              end
               'd14: flags <= working[7:0];
               'd16: window <= working[15:0];
               'd18: checksum <= working[15:0];

@@ -10,6 +10,7 @@ module mac_encode #(
   input reg [47:0] mac_dest,
   input reg [15:0] ethertype,
 
+  output reg ready,
   // send_next asserts when the MAC is ready for the next payload
   // callers should read and update mac_phy_txd whenever this is high
   output reg send_next,
@@ -88,8 +89,10 @@ always @(posedge clk) begin
       IDLE: begin
         fcs_counter <= '0;
         ipg_counter <= '0;
+        ready <= 'b1;
 
         if (en) begin 
+          ready <= 'b0;
           cur_state <= PREAMBLE;
           mac_phy_txen <= '1;
           mac_phy_txd <= 8'b01010101;

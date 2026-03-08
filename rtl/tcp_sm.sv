@@ -51,6 +51,8 @@ module tcp_sm (
   endgenerate
 
   always @(posedge clk) begin
+    // clear the packet to send register by default
+    pkt_to_send <= '0;
     pkt_to_send.peer_addr <= current_tcb.peer_addr;
     pkt_to_send.peer_port <= current_tcb.peer_port;
   end
@@ -93,6 +95,7 @@ module tcp_sm (
           end else next_tcb.state <= LISTEN;
         end
         ESTABLISHED: begin
+          pkt_to_send.sequence_num <= current_tcb.sequence_num;
           if ((incoming_pkt.flags & FIN) != '0) begin
             next_tcb.ack_num <= incoming_pkt.sequence_num + 1;
             next_tcb.state <= LASTACK;
@@ -136,6 +139,11 @@ module tcp_sm (
             $display("LOG: no payload data in incoming packet");
             reject_payload <= 1'b1;
           end
+          // Check if there is packet to send to piggy back off the ACK reply
+          if (!to_be_sent_empty) begin
+            pkt_to_send.sequence_num <= current_tcb.to_be_sent[current_tcb.to_be_sent_rd_ptr].sequence_num + {16'd0, current_tcb.to_be_sent[current_tcb.to_be_sent_rd_ptr].payload_size};
+            APPEND_TO_ACK_LIST();
+          end
         end
         LASTACK: begin
           if ((incoming_pkt.flags & ACK) != '0) begin
@@ -154,13 +162,16 @@ module tcp_sm (
         ESTABLISHED: begin
           if (!to_be_sent_empty) begin
             tx_en <= 1'b1;
-            pkt_to_send <= current_tcb.to_be_sent[current_tcb.to_be_sent_rd_ptr];
+            pkt_to_send.ack_num <= current_tcb.ack_num;
+            pkt_to_send.sequence_num <= current_tcb.sequence_num + {16'd0, incoming_pkt.payload_size};
+            pkt_to_send.payload_size <= current_tcb.to_be_sent[current_tcb.to_be_sent_rd_ptr].payload_size;
+            pkt_to_send.payload_addr <= current_tcb.to_be_sent[current_tcb.to_be_sent_rd_ptr].payload_addr;
+            // TODO: update based on availabe buffer
+            pkt_to_send.window <= tcp::MSS;
             pkt_to_send.flags <= tcp::ACK;
 
             accept_payload <= 1'b1;
             APPEND_TO_ACK_LIST();
-            next_tcb.to_be_ack_wr_ptr  <= current_tcb.to_be_ack_wr_ptr + 1;
-            next_tcb.to_be_sent_rd_ptr <= current_tcb.to_be_sent_rd_ptr + 1;
             // assumed that the packet for tx is in the to_be_sent array
           end else begin
             reject_payload <= 1'b1;
@@ -185,6 +196,8 @@ module tcp_sm (
 
   task automatic APPEND_TO_ACK_LIST();
     logic [31:0] next_ack_num = incoming_pkt.sequence_num + {16'b0, incoming_pkt.payload_size};
+    next_tcb.to_be_ack_wr_ptr  <= current_tcb.to_be_ack_wr_ptr + 1;
+    next_tcb.to_be_sent_rd_ptr <= current_tcb.to_be_sent_rd_ptr + 1;
     for (logic [tcp::BUFF_WIDTH:0] i = '0; i < {1'b0, {tcp::BUFF_WIDTH{1'b1}}}; i = i + 1) begin
       for (logic [tcp::BUFF_WIDTH:0] j = '0; j < {1'b0, {tcp::BUFF_WIDTH{1'b1}}}; j = j + 1) begin
         case ({

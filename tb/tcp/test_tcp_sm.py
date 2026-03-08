@@ -32,6 +32,12 @@ class TB(TCPSimSock):
         await RisingEdge(self.dut.clk)
         await RisingEdge(self.dut.clk)
 
+    def recv_checks(self, pkt):
+        calculated_from_hdl = pkt.chksum
+        del pkt.chksum
+        pkt.show2()
+        assert pkt.chksum == calculated_from_hdl
+
     def send(self, pkt):
         super().send(pkt)
 
@@ -57,10 +63,11 @@ class PacketGen:
 
     def __init__(self, ip, port):
         self.payload = Raw(RandString(size=120))
+        self.queue = Queue()
 
     def recv(self, n=None):
         cocotb.log.info("Packet gen triggered")
-        return self.payload
+        return self.queue.get()
 
 
 @cocotb.test()
@@ -104,9 +111,8 @@ async def tcp_sim(dut):
     tb = TB(dut)
     await tb.reset(tb.dut.rst)
     client_ref = []
-    ready = cocotb.triggers.Event()
     cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
-        tb, ready, client_ref, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
+        tb, client_ref, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
     await Timer(1000, "ns")
 
     # tb.dut.tcp_echo_en.value = 1
