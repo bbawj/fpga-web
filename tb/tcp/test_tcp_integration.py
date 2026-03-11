@@ -75,7 +75,16 @@ async def tcp_integration_basic(dut):
     await tb.rgmii_phy.rx.send(test_frame)
     rx_frame = await with_timeout(tb.rgmii_phy.tx.recv(), 50000, "ns")
     rx = Ether(rx_frame.get_payload())
+    cocotb.log.info(rx[TCP].chksum)
+    cocotb.log.info(rx[IP].chksum)
+    actual_ip_chksum = rx[IP].chksum
+    actual_tcp_chksum = rx[TCP].chksum
+    del rx[TCP].chksum
+    del rx[IP].chksum
+    rx = rx.__class__(bytes(rx))
     rx.show2()
+    assert rx[IP].chksum == actual_ip_chksum
+    assert rx[TCP].chksum == actual_tcp_chksum
     assert rx_frame.check_fcs()
     assert rx.dst == src_mac.lower()
     assert rx[TCP].dport == 5000
@@ -122,6 +131,9 @@ class PacketGen:
 
     def empty(self):
         return self.sent or self.from_bench.empty()
+
+    def send(self, pkt):
+        pass
 
 
 @cocotb.test()

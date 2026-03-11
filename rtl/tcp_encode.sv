@@ -24,7 +24,7 @@ module tcp_encode #(
 );
 
   reg [15:0] checksum = '0;
-  reg [31:0] working = '0;
+  reg [15:0] working = '0;
   reg [15:0] counter = '0;
 
   always @(posedge clk) begin
@@ -52,16 +52,21 @@ module tcp_encode #(
         'd13: out = flags;
         'd14: out = window[15:8];
         'd15: out = window[7:0];
-        'd16: out = checksum[15:8];
-        'd17: out = checksum[7:0];
+        'd16: out = ~checksum[15:8];
+        'd17: out = ~checksum[7:0];
         'd18: out = '0;
         'd19: out = '0;
         default: out = '0;
       endcase
       done <= (counter == 'd19) ? 1'b1 : '0;
       dout <= out;
-      if (counter < 'd16) checksum <= ones_comp(checksum, {8'b0, out});
-      else
+      working <= {working[7:0], out};
+      if (counter < 'd16 && counter[0] == 1'b1) checksum <= ones_comp(checksum, {working[7:0], out});
+    end else begin
+      working <= {8'b0, MY_TCP_PORT[15:8]};
+      dout <= MY_TCP_PORT[15:8];
+      counter <= 'd1;
+      done <= '0;
         checksum <= ones_comp(
             ones_comp(
                 ones_comp(
@@ -77,10 +82,6 @@ module tcp_encode #(
             ),
             16'd6
         );
-    end else begin
-      dout <= MY_TCP_PORT[15:8];
-      counter <= 'd1;
-      done <= '0;
     end
   end
 
