@@ -14,7 +14,7 @@ module uart #(
 reg fifo_rd_en = 0;
 wire fifo_empty, fifo_full;
 reg [DATA_WIDTH - 1:0] fifo_dout;
-fifo #(.DATA_WIDTH(DATA_WIDTH)) _fifo (.clk(clk), .rst(rst), .wr_en(valid), .din(rx), .full(fifo_full),
+fifo #(.DATA_WIDTH(DATA_WIDTH), .DEPTH(128)) _fifo (.clk(clk), .rst(rst), .wr_en(valid), .din(rx), .full(fifo_full),
   .rd_en(fifo_rd_en), .dout(fifo_dout), .empty(fifo_empty), .count());
 
 typedef enum {IDLE, START, DATA, STOP} UART_STATE;
@@ -56,7 +56,7 @@ always @(posedge clk) begin
         fifo_rd_en <= 0;
         if (counter == 0) begin
           uart_state <= DATA;
-          shift_dout <= {1'b1, fifo_dout[(byte_counter+1)*8 - 1 -: 8]};
+          shift_dout <= {1'b1, fifo_dout};
         end
       end
       DATA: begin

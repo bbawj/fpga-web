@@ -2,25 +2,30 @@
 `define utils_svh_
 
 `ifdef SPEED_100M
-  // 100M works on 1 nibble per cycle, but our interfaces are all 8 bit. Since
-  // only the nibble matters, we can still select 1 byte but only shift by
-  // 4 bits on count increasing
+// 100M works on 1 nibble per cycle, but our interfaces are all 8 bit. Since
+// only the nibble matters, we can still select 1 byte but only shift by
+// 4 bits on count increasing
 `define SELECT_BYTE_LSB(data, end_count, start_count) \
   data[4*(end_count - start_count + 1) - 1 -: 4]
-  // data = [31:0], end_count = 0, start_count = 0
-  // data[32 - 4*(1) + 8*0 - 1 -: 4] = data[27:24]
-  // end_count = 1, start_count = 0
-  // data[32 - 4*(2) + 8*1 - 1 -: 4] = data[31:28]
-  // end_count = 2, start_count = 0
-  // data[32 - 4*(3) + 8*0 - 1 -: 4] = data[19:16]
+// data = [31:0], end_count = 0, start_count = 0
+// data[32 - 4*(1) + 8*0 - 1 -: 4] = data[27:24]
+// end_count = 1, start_count = 0
+// data[32 - 4*(2) + 8*1 - 1 -: 4] = data[31:28]
+// end_count = 2, start_count = 0
+// data[32 - 4*(3) + 8*0 - 1 -: 4] = data[19:16]
 `define SELECT_BYTE_MSB(data, end_count, start_count) \
-  data[$bits(data) - 4*(end_count - start_count + 1) + 8 * (end_count & 1'b1 ? 1 : 0) - 1 -: 4]
+  /* verilator lint_off WIDTHEXPAND */ \
+    /* verilator lint_off WIDTHTRUNC */\
+  data[$bits(data) - 4*(end_count - start_count + 1) + 8 * (end_count & 1'b1 ? 1 : 0) - 1 -: 4] \
+  /* verilator lint_on WIDTHEXPAND */\
+    /* verilator lint_off WIDTHTRUNC */
 `else
+
 `define SELECT_BYTE_LSB(data, end_count, start_count) \
   data[8*(end_count - start_count + 1) - 1 -: 8]
 `define SELECT_BYTE_MSB(data, end_count, start_count) \
   /* verilator lint_off WIDTHEXPAND */ \
-  data[$bits(data) - 8*(end_count - start_count) - 1 -: 8] \
+  data[$bits(data) - 8*(end_count) - 1 -: 8] \
   /* verilator lint_on WIDTHEXPAND */
 `endif
 
@@ -36,17 +41,14 @@ begin\
   uart_valid <= 1'b0;\
 end
 `else
-  `define LOG(signal) begin end
-  `define LOG_END begin end
+`define LOG(signal) begin end
+`define LOG_END begin end
 `endif
 
 function automatic logic [15:0] ones_comp(logic [15:0] checksum, logic [15:0] data);
-  reg [16:0] sum = 0;
+  logic [16:0] sum;
   sum = data + checksum;
-  if (sum[16] == 1'b1)
-    ones_comp = sum[15:0] + 1'b1;
-  else
-    ones_comp = sum[15:0];
+  ones_comp = sum[15:0] + {15'b0, sum[16]};
 endfunction
 
 `endif

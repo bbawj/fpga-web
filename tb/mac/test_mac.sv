@@ -14,6 +14,7 @@ module test_mac (
       .clk(clk),
       .rst(rst),
       .led(),
+      .tcp_echo_en(),
 
       .uart_tx  (),
       .phy_txd  (phy_txd),

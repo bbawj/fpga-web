@@ -40,95 +40,106 @@ module tcp_decode #(
 
   typedef enum {
     IDLE,
-    BUSY,
+    SA,
+    DA,
+    SEQ,
+    ACK,
+    OFS,
+    FLAGS,
+    WNDW,
+    CHECKSUM,
+    PAYLOAD,
     DONE
-  } STATE;
-  STATE state = IDLE;
+  } state_t;
+  state_t state = IDLE;
+  state_t next_state;
+  state_t prev_state = IDLE;
 
   always @(posedge clk) begin
     if (rst) begin
+      state   <= IDLE;
       counter <= '0;
-      done <= '0;
-      err <= '0;
-      working <= '0;
-      working_checksum <= '0;
-      state <= IDLE;
     end else begin
-      if (valid) begin
-        working <= {working[23:0], din};
-        counter <= counter + 'd1;
-      end
-      case (state)
-        IDLE: begin
-          counter <= '0;
-          done <= '0;
-          err <= '0;
-          payload_valid <= '0;
-          if (valid) begin
-            state <= BUSY;
-            counter <= counter + 'd1;
-            payload_size <= ip_payload_size - (4'd4 * ip_ihl);
-            working_checksum <= ones_comp(
-                ones_comp(
-                    ones_comp(
-                        ones_comp(
-                            ones_comp(
-                                ones_comp(working_checksum, ip_da[15:0]), ip_da[31:16]
-                            ),
-                            ip_sa[15:0]
-                        ),
-                        ip_sa[31:16]
-                    ),
-                    ip_payload_size - (4'd4 * ip_ihl)
-                ),
-                16'd6
-            );
-          end
-        end
-        BUSY: begin
-          if (valid) begin
-            done <= '0;
-            if (counter != '0 && !counter[0])
-              working_checksum <= ones_comp(working_checksum, working[15:0]);
-            case (counter)
-              'd2:  source_port <= working[15:0];
-              'd4:  dest_port <= working[15:0];
-              'd8:  sequence_num <= working;
-              'd12: ack_num <= working;
-              'd13: begin
-                data_offset  <= working[7:4];
-                payload_size <= payload_size - data_offset * 4;
-              end
-              'd14: flags <= working[7:0];
-              'd16: window <= working[15:0];
-              'd18: checksum <= working[15:0];
-              'd20: begin
-                //urg <= working[15:0];
-              end
-            endcase
-            // send out payload
-            payload_valid <= '0;
-            if (counter > data_offset * 4) begin
-              payload <= working[7:0];
-              payload_valid <= 1'b1;
-            end
-            // TODO: check overshoot MSS
-            if (counter == MSS + 'd20) begin
-            end
-          end else begin
-            done <= 1'b1;
-            // checksum field = ~(a+b...)
-            // working_checksum = a+b...+ checksum_field
-            err <= !(working_checksum == '1);
-            payload_valid <= '0;
-            state <= DONE;
-          end
-        end
-        DONE: begin
-          if (valid == 1'b0) state <= IDLE;
+      counter <= (state == IDLE) ? 'd1 : counter + 'd1;
+      working <= {working[23:0], din};
+      state   <= next_state;
+    end
+  end
+
+  always_comb begin
+    next_state = state;
+    case (state)
+      IDLE: if (valid) next_state = SA;
+      SA: if (counter == 'd1) next_state = DA;
+      DA: if (counter == 'd3) next_state = SEQ;
+      SEQ: if (counter == 'd7) next_state = ACK;
+      ACK: if (counter == 'd11) next_state = OFS;
+      OFS: if (counter == 'd12) next_state = FLAGS;
+      FLAGS: if (counter == 'd13) next_state = WNDW;
+      WNDW: if (counter == 'd15) next_state = CHECKSUM;
+      CHECKSUM: if (counter == 'd17) next_state = PAYLOAD;
+      PAYLOAD: if (!valid) next_state = DONE;
+      DONE: next_state = IDLE;
+      default: next_state = IDLE;
+    endcase
+  end
+
+  always @(posedge clk) begin
+    prev_state <= state;
+    if (prev_state != state) begin
+      case (prev_state)
+        SA: source_port <= working[15:0];
+        DA: dest_port <= working[15:0];
+        SEQ: sequence_num <= working;
+        ACK: ack_num <= working;
+        OFS: data_offset <= working[7:4];
+        FLAGS: flags <= working[7:0];
+        WNDW: window <= working[15:0];
+        CHECKSUM: checksum <= working[15:0];
+        default: begin
         end
       endcase
     end
+  end
+
+  always @(posedge clk) begin
+    if (!valid) working_checksum <= '0;
+    else if (counter != '0 && !counter[0])
+      working_checksum <= ones_comp(working_checksum, working[15:0]);
+  end
+
+  always @(posedge clk) begin
+    case (state)
+      IDLE: begin
+        done <= '0;
+        err <= '0;
+        payload_valid <= '0;
+        if (valid) begin
+          logic [17:0] sum;
+          payload_size <= ip_payload_size - (4'd4 * ip_ihl);
+          sum = 18'd6 + {2'b0, ip_da[15:0]} + {2'b0, ip_da[31:16]} + {2'b0, ip_sa[15:0]} + {2'b0, ip_sa[31:16]}
+          + {2'b0, (ip_payload_size - 4'd4 * ip_ihl)};
+          sum = {2'b0, sum[15:0]} + {16'b0, sum[17:16]};
+          sum = {2'b0, sum[15:0]} + {16'b0, sum[17:16]};
+          working_checksum <= sum[15:0];
+        end
+      end
+      FLAGS: payload_size <= payload_size - data_offset * 4;
+      PAYLOAD: begin
+        //urg <= working[15:0];
+        payload <= working[7:0];
+        payload_valid <= 1'b1;
+        // TODO: check overshoot MSS
+        if (counter == MSS + 'd20) begin
+        end
+      end
+      DONE: begin
+        done <= 1'b1;
+        err  <= !(working_checksum == '1);
+      end
+      default: begin
+      end
+    endcase
   end
 
 endmodule

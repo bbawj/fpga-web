@@ -1,5 +1,6 @@
 import socket
 import cocotb
+from cocotb.clock import Clock, Timer
 from scapy.all import TCP, IP, TCP_client
 from cocotb.triggers import RisingEdge, ReadWrite
 from multiprocessing import Queue
@@ -25,7 +26,7 @@ class TcpPacketSV:
     FIELD_LAYOUT = [
         ("peer_addr", 32),
         ("peer_port",      16),
-        ("payload_addr",   "BUFF_WIDTH"),  # resolved at runtime
+        ("payload_addr",   19),  # resolved at runtime
         ("payload_size",   16),
         ("checksum",       16),
         ("flags",          8),
@@ -173,7 +174,7 @@ class PacketTDecoder:
 
         pkt["peer_addr"] = reader.read_bits(32)
         pkt["peer_port"] = reader.read_bits(16)
-        pkt["payload_addr"] = reader.read_bits(self.buff_width)
+        pkt["payload_addr"] = reader.read_bits(19)
         pkt["payload_size"] = reader.read_bits(16)
         pkt["checksum"] = reader.read_bits(16)
         pkt["flags"] = reader.read_bits(8)
@@ -242,16 +243,15 @@ class TcbDecoder:
 
 
 class TCP_client_sim(TCP_client):
-    def __init__(self, sock, ready, ref, *args, **kargs):
+    def __init__(self, sock, ref, *args, **kargs):
         self._sock = sock
-        ready.set()
         ref.append(self)
         super().__init__(*args, sock=self._sock, **kargs)
 
     def parse_args(self, *args, **kargs):
         print(f"TB: {self._sock}")
         # Call parent with simulation IPs
-        super().parse_args(*args, debug=10, **kargs)
+        super().parse_args(*args, debug=3, **kargs)
 
     def _do_start(self, *args, **kargs):
         class Dummy:
@@ -261,13 +261,29 @@ class TCP_client_sim(TCP_client):
         args = (ready,) + (args)
         super().run(wait=False)
         super()._do_control(*args, **kargs)
+        assert False, "TCP died due to exception"
+
+    def master_filter(self, pkt):
+        assert IP in pkt
+        assert pkt[IP].src == self.dst
+        assert pkt[IP].dst == self.src
+        assert TCP in pkt
+        assert pkt[TCP].sport == self.dport
+        assert pkt[TCP].dport == self.sport
+        if pkt[TCP].flags == "A":
+            assert self.l4[TCP].ack == pkt[TCP].seq
+        assert self.l4[TCP].seq >= pkt[TCP].ack  # XXX: seq/ack 2^32 wrap up  # noqa: E501
+        assert ((self.l4[TCP].ack == 0) or (
+            self.sack <= pkt[TCP].seq <= self.l4[TCP].ack + pkt[TCP].window))  # no
+        # assert super().master_filter(pkt), f"What? {self.l4.show2(dump=True)}"
+        return True
 
     def syn_ack_timeout(self):
         pass
 
 
 class TCPSimSock:
-    def __init__(self, sig_clk, sig_rdy, sig_pkt, sig_pkt_rx, sig_pkt_txen, sig_pkt_to_send):
+    def __init__(self, sig_clk, sig_rdy=None, sig_pkt=None, sig_pkt_rx=None, sig_pkt_txen=None, sig_pkt_to_send=None):
         self.from_hdl = Queue()
         self.pkt_decoder = PacketTDecoder()
         self.sig_clk = sig_clk
@@ -281,7 +297,8 @@ class TCPSimSock:
     async def reset_pkt_sent(self):
         await RisingEdge(self.sig_clk)
         await ReadWrite()
-        self.sig_pkt_rx.value = 0
+        if self.sig_pkt_rx is not None:
+            self.sig_pkt_rx.value = 0
 
     def send(self, pkt):
         cocotb.log.info("Simulator trying to send packet:")
@@ -305,8 +322,19 @@ class TCPSimSock:
             cocotb.log.info("Test Bench trying to send packet:")
             # TODO: check no packet then just quickly return
             s = self.pkt_decoder.signal_to_scapy(self.sig_pkt_to_send.value)
+            self.recv_checks(s)
             s.show2()
             self.from_hdl.put(s, block=False)
+
+    def recv_checks(self, pkt):
+        """
+        Override to do test specific checks
+        """
+        calculated_from_hdl = pkt.chksum
+        del pkt.chksum
+        pkt.show2(dump=True)
+        assert False
+        assert pkt.chksum != calculated_from_hdl
 
     async def recv_pkt_from_hdl(self):
         await RisingEdge(self.sig_clk)
@@ -317,14 +345,30 @@ class TCPSimSock:
     def recv(self):
         return cocotb.task.resume(self.recv_pkt_from_hdl)()
 
-    @staticmethod
+    @ staticmethod
     def select(sockets, remain=None):
         # first element is "cmdin" we are trying to return ourselves back to Automaton i.e. listen_socket
-        if sockets[0].empty():
-            return sockets[1:]
-        if hasattr(sockets[0], "from_hdl") and sockets[0].from_hdl.empty():
-            return sockets[1:]
-        return sockets
+        new = []
+        for s in sockets:
+
+            if hasattr(s, "from_hdl") and s.from_hdl.empty():
+                continue
+            if hasattr(s, "from_bench") and s.from_bench.empty():
+                continue
+            if hasattr(s, "empty") and s.empty():
+                continue
+            if hasattr(s, "rd"):
+                if hasattr(s.rd, "empty") and s.rd.empty():
+                    continue
+            new.append(s)
+
+        if len(new) == 0:
+            cocotb.task.resume(TCPSimSock.move_sim_time)()
+        return new
+
+    @ staticmethod
+    async def move_sim_time():
+        await Timer(10, "ns")
 
     def close(self):
         self.closed = True

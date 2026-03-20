@@ -17,11 +17,21 @@ module ip_encode (
 );
 
   reg [ 4:0] counter = '0;
-  reg [15:0] checksum = '0;
+  reg [17:0] checksum = '0;
   initial begin
     $display("Fixed fields pre-calc checksum:");
     $display(ones_comp(ones_comp(ones_comp(ones_comp(ones_comp('h0, 'h0000), 'h4006), 'h4000),
                                  'h0001), 'h4500));
+  end
+
+  always @(posedge clk) begin
+    case (counter)
+      'd2:
+      checksum <= 18'd50439 + {2'b0, len} + {2'b0, sa[31:16]} + {2'b0, sa[15:0]}+ {2'b0, da[31:16]}+ {2'b0, da[15:0]};
+      'd3: checksum <= {2'b0, checksum[15:0]} + {16'b0, checksum[17:16]};
+      'd4: checksum <= {2'b0, checksum[15:0]} + {16'b0, checksum[17:16]};
+      default: checksum <= checksum;
+    endcase
   end
 
   always @(posedge clk) begin
@@ -31,12 +41,6 @@ module ip_encode (
       counter <= '0;
     end else if (en) begin
       done <= '0;
-      checksum <= ones_comp(
-          ones_comp(
-              ones_comp(ones_comp(ones_comp('d50439, len), sa[31:16]), sa[15:0]), da[31:16]
-          ),
-          da[15:0]
-      );
       counter <= counter < 'd19 ? counter + 1 : counter;
       case (counter)
         'd0:  dout <= 'h45;

@@ -1,200 +1,319 @@
 `include "utils.svh"
+`default_nettype none
 
 module mac_encode #(
-  parameter [47:0] MAC_ADDR = 48'hdeadbeefcafe
-  )(
-  input wire clk,
-  input wire rst,
-  input wire en,
-  input wire [7:0] mac_payload,
-  input reg [47:0] mac_dest,
-  input reg [15:0] ethertype,
+    parameter [47:0] MAC_ADDR = 48'hdeadbeefcafe
+) (
+    input wire clk,
+    input wire rst,
+    input wire en,
+    input wire [7:0] mac_payload,
+    input reg [47:0] i_mac_dest,
+    input reg [15:0] i_ethertype,
 
-  output reg ready,
-  // send_next asserts when the MAC is ready for the next payload
-  // callers should read and update mac_phy_txd whenever this is high
-  output reg send_next,
-  output reg phy_txctl, 
-  output reg [3:0] phy_txd
+    output reg ready,
+    // send_next asserts when the MAC is ready for the next payload
+    // callers should read and update mac_phy_txd whenever this is high
+    output reg send_next,
+    output reg mac_txen,
+    output reg [7:0] mac_txd
 );
 
-reg mac_phy_txen;
-reg [7:0] mac_phy_txd;
-rgmii_tx _rgmii_tx(.clk(clk), .rst(rst), .mac_phy_txen(mac_phy_txen), 
-  .mac_phy_txd(mac_phy_txd), .phy_txctl(phy_txctl),
-  .phy_txd(phy_txd));
+  typedef enum {
+    IDLE,
+    PREAMBLE,
+    SFD,
+    DEST,
+    SOURCE,
+    TYPE,
+    TYPE2,
+    PAYLOAD,
+    PAD,
+    FCS,
+    IPG
+  } mac_state_t;
 
-typedef enum {IDLE, PREAMBLE, SFD, DEST, SOURCE, TYPE, PAYLOAD, PAD, FCS, IPG} MAC_STATE;
-
-reg [31:0] crc_next;
-reg [31:0] crc_out;
-reg [7:0] crc_din;
-crc32 #(
-  `ifdef SPEED_100M
-  .WIDTH(4)
-`else
-  .WIDTH(8)
-`endif
-  ) crc (.din(crc_din), .crc_next(crc_next), .crc_out(crc_out));
-
-reg [7:0] ipg_counter = '0;
-// Rather than creating separate modules for different speeds, i thought that
-// using an ifdef would be better. 100M outputs 4 bits per cycle but the
-// output interface is still 8 bits, only that every cycle, the output is
-// shifted by 4 bits. This is okay as the RGMII interface will only read from
-// the first 4 bits of mac_phy_txd. Hence, the counts are doubled for 100M,
-// since 2 cycles are required to go through the 1 byte as compared to 1000M.
+  reg [31:0] crc_next;
+  reg [31:0] crc_out;
+  reg [ 7:0] crc_din;
+  crc32 #(
 `ifdef SPEED_100M
-localparam [7:0] IPG_COUNT = 8'd16;
-localparam [15:0] COUNT_PREAMBLE = 16'd14;
-localparam [15:0] COUNT_SFD = 16'd16;
-localparam [15:0] COUNT_DEST = 16'd28;
-localparam [15:0] COUNT_SOURCE = 16'd40;
-localparam [15:0] COUNT_TYPE = 16'd44;
-localparam [15:0] COUNT_MIN_PAYLOAD = 16'd136;
-localparam [15:0] COUNT_MAX_PAYLOAD = 16'd3052;
-localparam [3:0] COUNT_FCS = 4'd8;
+      .WIDTH(4)
 `else
-localparam [7:0] IPG_COUNT = 8'd8;
-localparam [15:0] COUNT_PREAMBLE = 16'd7;
-localparam [15:0] COUNT_SFD = 16'd8;
-localparam [15:0] COUNT_DEST = 16'd14;
-localparam [15:0] COUNT_SOURCE = 16'd20;
-localparam [15:0] COUNT_TYPE = 16'd22;
-localparam [15:0] COUNT_MIN_PAYLOAD = 16'd68;
-localparam [15:0] COUNT_MAX_PAYLOAD = 16'd1526;
-localparam [3:0] COUNT_FCS = 4'd4;
+      .WIDTH(8)
 `endif
-localparam [7:0] sfd = 8'b11010101;
+      /* verilator lint_off WIDTHTRUNC */
+  ) crc (
+      .din(crc_din),
+      .crc_next(crc_next),
+      .crc_out(crc_out)
+  );
+  /* verilator lint_on WIDTHTRUNC */
+  typedef enum logic [5:0] {
+    S_IDLE,
+    // Preamble: 7 bytes of 0x55
+    S_PRE_0,
+    S_PRE_1,
+    S_PRE_2,
+    S_PRE_3,
+    S_PRE_4,
+    S_PRE_5,
+    S_PRE_6,
+    // SFD: 1 byte 0xD5
+    S_SFD,
+    // Dest MAC: 6 bytes
+    S_DEST_0,
+    S_DEST_1,
+    S_DEST_2,
+    S_DEST_3,
+    S_DEST_4,
+    S_DEST_5,
+    // Source MAC: 6 bytes
+    S_SRC_0,
+    S_SRC_1,
+    S_SRC_2,
+    S_SRC_3,
+    S_SRC_4,
+    S_SRC_5,
+    // Ethertype: 2 bytes
+    S_TYPE_0,
+    S_TYPE_1,
+    // Variable-length states
+    S_PAYLOAD,
+    S_PAD,
+    // FCS: 4 bytes
+    S_FCS_0,
+    S_FCS_1,
+    S_FCS_2,
+    S_FCS_3,
+    // IPG
+    S_IPG
+  } state_t;
 
-MAC_STATE cur_state = IDLE;
-reg [15:0] counter = '0;
-reg [3:0] fcs_counter = '0;
+  state_t state, next_state;
 
-always @(posedge clk) begin
-  if (rst) begin
-    crc_next <= 32'hFFFFFFFF;
-    crc_din <= '0;
+  // Latched inputs (captured at IDLE -> PRE_0)
+  logic [47:0] mac_dest;
+  logic [15:0] ethertype;
 
-    mac_phy_txd <= '0;
-    mac_phy_txen <= 0;
-    send_next <= 0;
+  // Counter for variable-length states only
+  localparam [15:0] COUNT_MIN_PAYLOAD = 16'd46;
+  localparam [15:0] COUNT_MAX_PAYLOAD = 16'd1500;
+  localparam [15:0] IPG_COUNT = 16'd8;
+  logic [15:0] counter;
 
-    cur_state <= IDLE;
-    counter <= '0;
-    fcs_counter <= '0;
-    ipg_counter <= '0;
-  end else begin
-    case (cur_state)
-      IDLE: begin
-        fcs_counter <= '0;
-        ipg_counter <= '0;
-        ready <= 'b1;
+  // CRC snapshot at FCS time
+  logic [31:0] crc_fcs;
 
-        if (en) begin 
-          ready <= 'b0;
-          cur_state <= PREAMBLE;
-          mac_phy_txen <= '1;
-          mac_phy_txd <= 8'b01010101;
-          counter <= 1;
-        end else begin
-          counter <= '0;
-          mac_phy_txen <= '0;
-          mac_phy_txd <= '0;
-        end
-      end
-      PREAMBLE: begin
-        mac_phy_txd <= 8'b01010101;
-        counter <= counter + 1;
-        // DV asserted to signify start of frame
-        if (counter == COUNT_PREAMBLE - 1) cur_state <= SFD;
-      end
-      SFD: begin
-        mac_phy_txd <= `SELECT_BYTE_MSB(sfd, counter, COUNT_PREAMBLE);
-        counter <= counter + 1;
-        if (counter == COUNT_SFD - 1) cur_state <= DEST;
-      end
-      DEST: begin
-        mac_phy_txd <= `SELECT_BYTE_MSB(mac_dest, counter, COUNT_SFD);
-        crc_din <= `SELECT_BYTE_MSB(mac_dest, counter, COUNT_SFD);
+  // -------------------------------------------------------------------------
+  // Input latch
+  // -------------------------------------------------------------------------
+  always_ff @(posedge clk) begin
+    ethertype <= i_ethertype;
+    mac_dest  <= i_mac_dest;
+  end
 
-        if (counter == COUNT_SFD) crc_next <= 32'hFFFFFFFF;
-        else crc_next <= crc_out;
-
-        counter <= counter + 1;
-        if (counter == COUNT_DEST - 1) cur_state <= SOURCE;
-      end
-      SOURCE: begin
-        mac_phy_txd <= `SELECT_BYTE_MSB(MAC_ADDR, counter, COUNT_DEST);
-        crc_din <= `SELECT_BYTE_MSB(MAC_ADDR, counter, COUNT_DEST);
+  // -------------------------------------------------------------------------
+  // CRC accumulation
+  // -------------------------------------------------------------------------
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      crc_next <= 32'hFFFFFFFF;
+    end else begin
+      case (state)
+        S_DEST_0: crc_next <= 32'hFFFFFFFF;  // reset at start of frame
+        S_DEST_1, S_DEST_2, S_DEST_3,
+        S_DEST_4, S_DEST_5,
+        S_SRC_0,  S_SRC_1,  S_SRC_2,
+        S_SRC_3,  S_SRC_4,  S_SRC_5,
+        S_TYPE_0, S_TYPE_1,
+        S_PAYLOAD, S_PAD:
         crc_next <= crc_out;
-        counter <= counter + 1;
-        if (counter == COUNT_SOURCE - 1) cur_state <= TYPE;
+        default: crc_next <= crc_next;
+      endcase
+    end
+  end
+
+  // Snapshot CRC going into FCS states so it doesn't shift under us
+  always_ff @(posedge clk) begin
+    if (state == S_TYPE_1 || (state == S_PAYLOAD && next_state == S_FCS_0)
+                           || (state == S_PAD    && next_state == S_FCS_0))
+      crc_fcs <= ~crc_out;
+  end
+
+  // -------------------------------------------------------------------------
+  // Counter (only meaningful in PAYLOAD / PAD / IPG)
+  // -------------------------------------------------------------------------
+  always_ff @(posedge clk) begin
+    if (rst) counter <= '0;
+    else begin
+      case (state)
+        S_TYPE_1: counter <= '0;  // reset before payload
+        S_PAYLOAD, S_PAD, S_IPG: counter <= counter + 1;
+        default: counter <= '0;
+      endcase
+    end
+  end
+
+  // -------------------------------------------------------------------------
+  // Next-state logic
+  // -------------------------------------------------------------------------
+  always_comb begin
+    next_state = state;
+    case (state)
+      S_IDLE:   next_state = en ? S_PRE_0 : S_IDLE;
+      S_PRE_0:  next_state = S_PRE_1;
+      S_PRE_1:  next_state = S_PRE_2;
+      S_PRE_2:  next_state = S_PRE_3;
+      S_PRE_3:  next_state = S_PRE_4;
+      S_PRE_4:  next_state = S_PRE_5;
+      S_PRE_5:  next_state = S_PRE_6;
+      S_PRE_6:  next_state = S_SFD;
+      S_SFD:    next_state = S_DEST_0;
+      S_DEST_0: next_state = S_DEST_1;
+      S_DEST_1: next_state = S_DEST_2;
+      S_DEST_2: next_state = S_DEST_3;
+      S_DEST_3: next_state = S_DEST_4;
+      S_DEST_4: next_state = S_DEST_5;
+      S_DEST_5: next_state = S_SRC_0;
+      S_SRC_0:  next_state = S_SRC_1;
+      S_SRC_1:  next_state = S_SRC_2;
+      S_SRC_2:  next_state = S_SRC_3;
+      S_SRC_3:  next_state = S_SRC_4;
+      S_SRC_4:  next_state = S_SRC_5;
+      S_SRC_5:  next_state = S_TYPE_0;
+      S_TYPE_0: next_state = S_TYPE_1;
+      S_TYPE_1: next_state = S_PAYLOAD;
+
+      S_PAYLOAD: begin
+        if (!en) next_state = (counter < COUNT_MIN_PAYLOAD) ? S_PAD : S_FCS_0;
+        else if (counter == COUNT_MAX_PAYLOAD - 1) next_state = S_FCS_0;
+        else next_state = S_PAYLOAD;
       end
-      TYPE: begin
-        mac_phy_txd <= `SELECT_BYTE_MSB(ethertype, counter, COUNT_SOURCE);
-        crc_din <= `SELECT_BYTE_MSB(ethertype, counter, COUNT_SOURCE);
-        crc_next <= crc_out;
-        counter <= counter + 1;
-        if (counter == COUNT_TYPE - 2) begin 
-          // Tell users of this module that mac header is done.
-          send_next <= 1;
-        end
-        if (counter == COUNT_TYPE - 1) begin 
-          cur_state <= PAYLOAD;
-        end
-      end
-      PAYLOAD: begin
-        counter <= counter + 1;
-        // TX_EN is deasserted! PAD if not MTU, otherwise FCS
-        if (~en) begin 
-          send_next <= 0;
-          if (counter < COUNT_MIN_PAYLOAD) begin
-            cur_state <= PAD;
-            mac_phy_txd <= '0;
-            crc_din <= '0;
-            crc_next <= crc_out;
-          end else begin
-            cur_state <= FCS;
-            fcs_counter <= fcs_counter + 1;
-            mac_phy_txd <= `SELECT_BYTE_LSB(~crc_out, fcs_counter, 0);
-          end
-        end else begin
-          mac_phy_txd <= mac_payload;
-          crc_din <= mac_payload;
-          crc_next <= crc_out;
-          if (counter == COUNT_MAX_PAYLOAD - 1) begin
-            cur_state <= FCS;
-            send_next <= 0;
-          end
-        end
-      end
-      PAD: begin
-        counter <= counter + 1;
-        mac_phy_txd <= '0;
-        crc_din <= '0;
-        crc_next <= crc_out;
-        if (counter == COUNT_MIN_PAYLOAD - 1) cur_state <= FCS;
-      end
-      FCS: begin
-        fcs_counter <= fcs_counter + 1;
-        mac_phy_txd <= `SELECT_BYTE_LSB(~crc_out, fcs_counter, 0);
-        // TODO: IPG
-        counter <= counter + 1;
-        if (fcs_counter == COUNT_FCS - 1) cur_state <= IPG;
-      end
-      IPG: begin
-        ipg_counter <= ipg_counter + 1;
-        counter <= '0;
-        fcs_counter <= '0;
-        mac_phy_txen <= '0;
-        mac_phy_txd <= '0;
-        
-        if (ipg_counter == IPG_COUNT - 1) cur_state <= IDLE;
-      end
+
+      S_PAD: next_state = (counter == COUNT_MIN_PAYLOAD - 1) ? S_FCS_0 : S_PAD;
+
+      S_FCS_0: next_state = S_FCS_1;
+      S_FCS_1: next_state = S_FCS_2;
+      S_FCS_2: next_state = S_FCS_3;
+      S_FCS_3: next_state = S_IPG;
+
+      S_IPG: next_state = (counter == IPG_COUNT - 1) ? S_IDLE : S_IPG;
+
+      default: next_state = S_IDLE;
     endcase
   end
-end
+
+  always_ff @(posedge clk) begin
+    if (rst) state <= S_IDLE;
+    else state <= next_state;
+  end
+
+  // -------------------------------------------------------------------------
+  // Output + CRC input logic
+  // -------------------------------------------------------------------------
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      mac_txd   <= '0;
+      mac_txen  <= 1'b0;
+      send_next <= 1'b0;
+      ready     <= 1'b1;
+      crc_din   <= '0;
+    end else begin
+
+      mac_txen <= (state != S_IDLE) && (state != S_IPG);
+      ready    <= (state == S_IDLE);
+
+      case (state)
+        S_IDLE: mac_txd <= '0;
+
+        S_PRE_0, S_PRE_1, S_PRE_2, S_PRE_3, S_PRE_4, S_PRE_5, S_PRE_6: mac_txd <= 8'h55;
+
+        S_SFD: mac_txd <= 8'hD5;
+
+        S_DEST_0: begin
+          mac_txd <= mac_dest[47:40];
+          crc_din <= mac_dest[47:40];
+        end
+        S_DEST_1: begin
+          mac_txd <= mac_dest[39:32];
+          crc_din <= mac_dest[39:32];
+        end
+        S_DEST_2: begin
+          mac_txd <= mac_dest[31:24];
+          crc_din <= mac_dest[31:24];
+        end
+        S_DEST_3: begin
+          mac_txd <= mac_dest[23:16];
+          crc_din <= mac_dest[23:16];
+        end
+        S_DEST_4: begin
+          mac_txd <= mac_dest[15:8];
+          crc_din <= mac_dest[15:8];
+        end
+        S_DEST_5: begin
+          mac_txd <= mac_dest[7:0];
+          crc_din <= mac_dest[7:0];
+        end
+
+        S_SRC_0: begin
+          mac_txd <= MAC_ADDR[47:40];
+          crc_din <= MAC_ADDR[47:40];
+        end
+        S_SRC_1: begin
+          mac_txd <= MAC_ADDR[39:32];
+          crc_din <= MAC_ADDR[39:32];
+        end
+        S_SRC_2: begin
+          mac_txd <= MAC_ADDR[31:24];
+          crc_din <= MAC_ADDR[31:24];
+        end
+        S_SRC_3: begin
+          mac_txd <= MAC_ADDR[23:16];
+          crc_din <= MAC_ADDR[23:16];
+        end
+        S_SRC_4: begin
+          mac_txd <= MAC_ADDR[15:8];
+          crc_din <= MAC_ADDR[15:8];
+        end
+        S_SRC_5: begin
+          mac_txd <= MAC_ADDR[7:0];
+          crc_din <= MAC_ADDR[7:0];
+        end
+
+        S_TYPE_0: begin
+          mac_txd   <= ethertype[15:8];
+          crc_din   <= ethertype[15:8];
+          send_next <= 1'b1;
+        end
+        S_TYPE_1: begin
+          mac_txd <= ethertype[7:0];
+          crc_din <= ethertype[7:0];
+        end
+
+        S_PAYLOAD: begin
+          mac_txd <= mac_payload;
+          crc_din <= mac_payload;
+        end
+
+        S_PAD: begin
+          send_next <= 1'b0;
+          mac_txd   <= '0;
+          crc_din   <= '0;
+        end
+
+        // FCS bytes are ~CRC LSB-first
+        S_FCS_0: mac_txd <= ~crc_out[7:0];
+        S_FCS_1: mac_txd <= ~crc_out[15:8];
+        S_FCS_2: mac_txd <= ~crc_out[23:16];
+        S_FCS_3: mac_txd <= ~crc_out[31:24];
+
+        S_IPG: mac_txd <= '0;
+
+        default: mac_txd <= '0;
+      endcase
+    end
+  end
 
 endmodule
 

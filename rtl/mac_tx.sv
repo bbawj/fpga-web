@@ -2,7 +2,7 @@ module mac_tx #(
     parameter [47:0] MY_MAC_ADDR = 0,
     parameter [31:0] MY_IP_ADDR  = 0
 ) (
-    input phy_txc,
+    input clk,
     input sdram_clk,
     input rst,
     input reg [47:0] i_mac_da,
@@ -13,16 +13,21 @@ module mac_tx #(
 
     input tcp_empty,
     output reg pkt_rd_en,
-    input tcp::packet_t pkt,
+    input tcp::packet_t pkt_external,
     // RD_EN asserted to get data from SDRAM onto tcp_payload_data
     input reg tcp_payload_rd_valid,
     input reg [31:0] tcp_payload_rd_data,
     output reg tcp_payload_rd_en,
     output reg [18:0] tcp_payload_rd_ad,
 
-    output reg [3:0] phy_txd,
-    output reg phy_txctl
+    output reg [7:0] mac_txd,
+    output reg mac_txen
 );
+
+  tcp::packet_t pkt;
+  always @(posedge clk) begin
+    if (pkt_rd_en) pkt <= pkt_external;
+  end
 
   // Pull payload data into temp buffer to free up SDRAM activity
   typedef enum {
@@ -40,14 +45,17 @@ module mac_tx #(
       .RD_WIDTH(8),
       .WR_WIDTH(32)
   ) tcp_outgoing_buffer (
-      .wr_clk (sdram_clk),
-      .wr_en  (tcp_outgoing_wr_en),
+      .wr_clk(sdram_clk),
+      .wr_en(tcp_outgoing_wr_en),
       .wr_addr('0),
       .wr_data(tcp_outgoing_wr_data),
-      .rd_clk (phy_txc),
-      .rd_en  (tcp_encode_done),
+      .rd_clk(clk),
+      .rd_en(tcp_encode_done),
       .rd_addr('0),
-      .rd_data(tcp_outgoing_rd_data)
+      .rd_valid(),
+      .rd_valid_q1(),
+      .rd_data(tcp_outgoing_rd_data),
+      .rd_data_q1()
   );
   reg tcp_outgoing_buffer_start_0, tcp_outgoing_buffer_start_1, tcp_outgoing_buffer_start_rising;
   synchronizer #(
@@ -59,10 +67,11 @@ module mac_tx #(
       .q  (tcp_outgoing_buffer_start_0)
   );
   reg [15:0] payload_counter = '0;
+
   always @(posedge sdram_clk) begin
     tcp_outgoing_buffer_start_1 <= tcp_outgoing_buffer_start_0;
     tcp_outgoing_buffer_start_rising <= ~tcp_outgoing_buffer_start_1 & tcp_outgoing_buffer_start_0;
-
+    tcp_outgoing_wr_data <= tcp_payload_rd_data;
     case (payload_buff_state)
       BUFF_STATE_IDLE: begin
         payload_counter <= '0;
@@ -78,14 +87,12 @@ module mac_tx #(
       end
       BUFF_STATE_START: begin
         if (tcp_payload_rd_valid) begin
-          tcp_outgoing_wr_en   <= 1'b1;
-          tcp_outgoing_wr_data <= tcp_payload_rd_data;
-          payload_buff_state   <= BUFF_STATE_MOVE_TO_LOCAL;
+          tcp_outgoing_wr_en <= 1'b1;
+          payload_buff_state <= BUFF_STATE_MOVE_TO_LOCAL;
         end
       end
       BUFF_STATE_MOVE_TO_LOCAL: begin
         tcp_outgoing_wr_en <= 1'b1;
-        tcp_outgoing_wr_data <= tcp_payload_rd_data;
         payload_counter <= payload_counter - 1;
         if (payload_counter == 1) begin
           tcp_outgoing_wr_en <= '0;
@@ -99,7 +106,7 @@ module mac_tx #(
   end
 
 
-  reg mac_encode_en, mac_encode_ready = '0;
+  reg mac_encode_en, mac_encode_ready;
   reg [7:0] mac_payload;
   reg [47:0] mac_dest = '0;
   reg mac_send_payload;
@@ -107,16 +114,16 @@ module mac_tx #(
   mac_encode #(
       .MAC_ADDR(MY_MAC_ADDR)
   ) _mac_encode (
-      .clk(phy_txc),
+      .clk(clk),
       .rst(rst),
       .en(mac_encode_en),
       .ready(mac_encode_ready),
       .mac_payload(mac_payload),
-      .mac_dest(mac_dest),
-      .ethertype(ethertype),
+      .i_mac_dest(mac_dest),
+      .i_ethertype(ethertype),
       .send_next(mac_send_payload),
-      .phy_txctl(phy_txctl),
-      .phy_txd(phy_txd)
+      .mac_txen(mac_txen),
+      .mac_txd(mac_txd)
   );
 
   reg arp_encode_en;
@@ -128,7 +135,7 @@ module mac_tx #(
       .MAC_ADDR(MY_MAC_ADDR),
       .IP_ADDR (MY_IP_ADDR)
   ) arp_e (
-      .clk(phy_txc),
+      .clk(clk),
       .rst(rst),
       .en (arp_encode_en),
       .tha(arp_encode_tha),
@@ -144,7 +151,7 @@ module mac_tx #(
   reg [15:0] ip_encode_len;
   reg [ 7:0] ip_encode_dout;
   ip_encode ip_enc (
-      .clk (phy_txc),
+      .clk (clk),
       .rst (rst),
       .en  (ip_encode_en),
       .sa  (ip_encode_sa),
@@ -160,15 +167,16 @@ module mac_tx #(
   reg [31:0] tcp_encode_ack_num;
   reg [ 7:0] tcp_encode_flags;
   reg [15:0] tcp_encode_window;
+  reg [15:0] tcp_encode_len;
   reg [15:0] tcp_encode_initial_checksum;
   reg [ 7:0] tcp_encode_dout;
   tcp_encode tcp_enc (
-      .clk(phy_txc),
+      .clk(clk),
       .rst(rst),
       .en(tcp_encode_en),
       .ip_sa(ip_encode_sa),
       .ip_da(ip_encode_da),
-      .ip_packet_len(ip_encode_len),
+      .tcp_len(tcp_encode_len),
 
       .dest_port(tcp_encode_dest_port),
       .sequence_num(tcp_encode_sequence_num),
@@ -189,7 +197,7 @@ module mac_tx #(
   } tx_state_t;
   tx_state_t tx_state = IDLE;
   reg [15:0] payload_counter_2;
-  always @(posedge phy_txc) begin
+  always @(posedge clk) begin
     if (rst) begin
       tx_state  <= IDLE;
       pkt_rd_en <= 0;
@@ -197,9 +205,6 @@ module mac_tx #(
       case (tx_state)
         IDLE: begin
           mac_encode_en <= '0;
-          arp_encode_en <= '0;
-          ip_encode_en <= '0;
-          tcp_encode_en <= '0;
           payload_counter_2 <= '0;
           ethertype <= '0;
           if (mac_encode_ready && send_arp) begin
@@ -217,7 +222,6 @@ module mac_tx #(
         end
         ARP: begin
           if (mac_send_payload) begin
-            arp_encode_en  <= 1'b1;
             arp_encode_tha <= i_arp_encode_tha;
             arp_encode_tpa <= i_arp_encode_tpa;
           end
@@ -230,14 +234,13 @@ module mac_tx #(
         IP: begin
           if (mac_send_payload) begin
             payload_counter_2 <= pkt.payload_size;
-            ip_encode_en <= 1'b1;
             // include TCP header
             ip_encode_len <= pkt.payload_size + 'd40;
             ip_encode_sa <= MY_IP_ADDR;
             ip_encode_da <= pkt.peer_addr;
           end
           if (ip_encode_done) begin
-            tcp_encode_en <= 1'b1;
+            tcp_encode_len <= ip_encode_len - 'd20;
             tcp_encode_dest_port <= pkt.peer_port;
             tcp_encode_sequence_num <= pkt.sequence_num;
             tcp_encode_ack_num <= pkt.ack_num;
@@ -251,35 +254,51 @@ module mac_tx #(
           if (tcp_encode_done) begin
             if (payload_counter_2 > 0) begin
               tx_state <= PAYLOAD;
-            end else tx_state <= IDLE;
+            end else begin
+              tx_state <= IDLE;
+              mac_encode_en <= '0;
+            end
           end
         end
         PAYLOAD: begin
           payload_counter_2 <= payload_counter_2 - 1;
-          if (payload_counter_2 == 1) tx_state <= IDLE;
+          if (payload_counter_2 == 1) begin
+            tx_state <= IDLE;
+            mac_encode_en <= '0;
+          end
         end
       endcase
     end
   end
 
   always_comb begin
-    mac_payload = '0;
+    ip_encode_en  = '0;
+    tcp_encode_en = '0;
+    arp_encode_en = '0;
+    case (tx_state)
+      ARP: arp_encode_en = mac_send_payload;
+      IP: ip_encode_en = mac_send_payload;
+      TCP: tcp_encode_en = mac_send_payload;
+      default: arp_encode_en = 0;
+    endcase
+  end
+
+  always @(posedge clk) begin
     if (mac_send_payload) begin
       case (tx_state)
         ARP: begin
-          mac_payload = arp_encode_dout;
+          mac_payload <= arp_encode_dout;
         end
         IP: begin
-          mac_payload = ip_encode_dout;
+          mac_payload <= ip_encode_dout;
         end
         TCP: begin
-          mac_payload = tcp_encode_dout;
-          if (tcp_encode_done) mac_payload = tcp_outgoing_rd_data;
+          mac_payload <= tcp_encode_dout;
         end
         PAYLOAD: begin
-          mac_payload = tcp_outgoing_rd_data;
+          mac_payload <= tcp_outgoing_rd_data;
         end
-        default: mac_payload = '0;
+        default: mac_payload <= '0;
       endcase
     end
   end

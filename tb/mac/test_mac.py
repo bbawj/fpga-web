@@ -1,16 +1,17 @@
+import pytest
+import cocotb
+import os
+from cocotbext.eth import GmiiFrame, RgmiiPhy
+from cocotb.triggers import RisingEdge, with_timeout, ReadWrite
+from cocotb.clock import Clock, Timer
+from cocotb.utils import get_sim_time, get_sim_steps
+from cocotb_tools.runner import get_runner
+from scapy.all import Raw, RandString, Ether, TCP, IP
 import itertools
 import logging
+import struct
+import zlib
 
-import os
-import cocotb
-import pytest
-from scapy.all import Raw, RandString, Ether, TCP, IP
-from cocotb_tools.runner import get_runner
-from cocotb.utils import get_sim_time, get_sim_steps
-from cocotb.clock import Clock, Timer
-from cocotb.triggers import RisingEdge, with_timeout
-
-from cocotbext.eth import GmiiFrame, RgmiiPhy
 
 LOC_MAC_ADDR = "DEADBEEFCAFE"
 MAC_SRC = "b025aa3306fe"
@@ -82,11 +83,14 @@ async def arp_reply(dut):
     spa = bytes.fromhex("c0a84564")
 
     test_data = bytes.fromhex(
-        "deadbeefcafeb025aa3306fe08060001080006040001b025aa3306fec0a84564DEADBEEFCAFE6969696900000000000000000000000000000000")
+# "555555555555d5deadbeefcafeb025aa3306fe08060001080006040001b025aa3306fec0a84564000000000000696969690000000000000000")
+"555555555555d5deadbeefcafeb025aa3306fe08060001080006040001b025aa3306fec0a84564000000000000696969690000000000000000000000000000000000001616317900")
+
     for i in range(2):
 
         # test_data = mac_payload(tha, sha, ether_type, arp_payload(op, sha, tha, spa, tpa))
-        test_frame = GmiiFrame.from_payload(test_data)
+        # test_frame = GmiiFrame.from_payload(test_data)
+        test_frame = GmiiFrame(test_data)
         await tb.rgmii_phy.rx.send(test_frame)
 
         reply_op = bytes.fromhex("0002")
@@ -94,6 +98,8 @@ async def arp_reply(dut):
             sha, tha, ether_type, arp_payload(reply_op, tha, sha, tpa, spa))
         rx_frame = await with_timeout(tb.rgmii_phy.tx.recv(), 50000, "ns")
         assert rx_frame.get_payload() == expected_data
+        cocotb.log.info(struct.pack('<L', zlib.crc32(
+            rx_frame.get_payload(strip_fcs=True))))
         assert rx_frame.check_fcs()
         assert rx_frame.error is None
 
@@ -115,30 +121,6 @@ async def arp_reply(dut):
         assert rx_frame.get_payload() == expected_data
         assert rx_frame.check_fcs()
         assert rx_frame.error is None
-
-
-@cocotb.test()
-async def tcp(dut):
-    speed_100 = os.getenv("SPEED_100M", None)
-    tb = TB(dut, speed_100 is not None)
-
-    await tb.reset()
-    payload = Raw(RandString(size=120))
-    dst_mac = ":".join([LOC_MAC_ADDR[i:i+2]
-                       for i in range(0, len(LOC_MAC_ADDR)-1, 2)])
-    src_mac = ":".join([MAC_SRC[i:i+2]
-                       for i in range(0, len(MAC_SRC)-1, 2)])
-    print(MAC_SRC[1:3])
-    test_data = Ether(dst=dst_mac, src=src_mac) / \
-        IP() / TCP(sport=5000) / payload
-    test_data.show2()
-    test_frame = GmiiFrame.from_payload(bytes(test_data))
-    await tb.rgmii_phy.rx.send(test_frame)
-    rx_frame = await with_timeout(tb.rgmii_phy.tx.recv(), 50000, "ns")
-    rx = Ether(rx_frame.get_payload())
-    rx.show2()
-    assert rx.dst == src_mac.lower()
-    assert rx[TCP].dport == 5000
 
 
 def arp_payload(op, sha, tha, spa, tpa):
@@ -163,6 +145,26 @@ def mac_payload(dest, src, ether_type, payload):
     if len(payload) < 60:
         payload = payload + bytearray(60-len(payload))
     return payload
+
+
+@cocotb.test()
+async def tcp_reply(dut):
+    speed_100 = os.getenv("SPEED_100M", None)
+    tb = TB(dut, speed_100 is not None)
+
+    await tb.reset()
+    data = bytes.fromhex(
+        "deadbeefcafeb025aa3306fe08004500003c0cde400040065481c0a845e2696969699b201f9031b8f9a900000000a002faf076de0000020405b40402080a8ca88a180000000001030307")
+    test_frame = GmiiFrame.from_payload(data)
+    Ether(data).show2()
+    await tb.rgmii_phy.rx.send(test_frame)
+    await tb.rgmii_phy.rx.wait()
+    rx_frame = await with_timeout(tb.rgmii_phy.tx.recv(), 50000, "ns")
+    # assert rx_frame.get_payload() == expected_data
+    Ether(rx_frame.get_payload()).show2()
+    assert rx_frame.check_fcs()
+    assert rx_frame.error is None
+    assert False
 
 
 @pytest.mark.parametrize("speed_100", [False])
@@ -216,4 +218,4 @@ def test_simple_dff_runner(speed_100):
     runner.test(waves=True,
                 verbose=True,
                 extra_env={"SPEED_100M": "True"} if speed_100 else {},
-                hdl_toplevel="test_mac", test_module="test_mac,")
+                hdl_toplevel="test_mac", test_module="test_mac")

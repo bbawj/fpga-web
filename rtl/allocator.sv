@@ -1,9 +1,16 @@
 `default_nettype none
-
+/**
+* A memory allocator based on https://ieeexplore.ieee.org/document/485574
+* Referencing slides from: https://www.eecg.utoronto.ca/~jzhu/publications/doc/ksjtalk.pdf
+*
+* The allocator has a fixed latency of NUM_BLOCKS_WIDTH + 1 to find a free
+* block.
+*/
 module allocator #(
     // size of minimum allocatable unit (smallest block)
     parameter MAU = 32,
     parameter NUM_BLOCKS = 32,
+    // Also the number of levels in the tree used to find a free block
     parameter NUM_BLOCKS_WIDTH = $clog2(NUM_BLOCKS)
 ) (
     input wire clk,

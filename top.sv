@@ -51,6 +51,8 @@ areset _areset(.clk(sysclk), .rst_n(button), .rst(rst));
   //   );
 
 mac mac_instance(
+  // We use base clock here instead of PHY_TXC as we purposely hold the data
+  // 90 degrees before TXC edge
   .clk(sysclk),
   .rst(rst),
   .led(),

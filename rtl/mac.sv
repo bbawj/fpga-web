@@ -49,15 +49,28 @@ module mac (
 
 `else
 
-  reg send_arp, send_tcp, tcp_empty = '0;
-  reg pkt_rd_en, tcp_tx_payload_rd_en = '0;
+  reg mac_txen;
+  reg [7:0] mac_txd;
+  rgmii_tx _rgmii_tx (
+      .clk(clk),
+      .rst(rst),
+      .mac_phy_txen(mac_txen),
+      .mac_phy_txd(mac_txd),
+      .phy_txctl(phy_txctl),
+      .phy_txd(phy_txd)
+  );
+
+  reg send_arp, send_tcp, tcp_empty;
+  reg pkt_rd_en, tcp_tx_payload_rd_en, tcp_tx_payload_rd_valid;
   reg [18:0] tcp_tx_payload_rd_ad;
-  tcp::packet_t tcp_tx_packet, tcp_tx_packet_pending;
+  tcp::packet_t tcp_tx_packet;
+  tcp::packet_t tcp_tx_packet_pending;
+
   mac_tx #(
       .MY_MAC_ADDR(LOC_MAC_ADDR),
       .MY_IP_ADDR (LOC_IP_ADDR)
   ) tx (
-      .phy_txc(clk),
+      .clk(clk),
       .sdram_clk(clk),
       .rst(rst),
       .i_mac_da(mac_sa),
@@ -68,25 +81,25 @@ module mac (
 
       .tcp_empty(tcp_empty),
       .pkt_rd_en(pkt_rd_en),
-      .pkt(tcp_tx_packet),
-      .tcp_payload_rd_valid(1'b1),
+      .pkt_external(tcp_tx_packet),
+      .tcp_payload_rd_valid(tcp_tx_payload_rd_valid),
       .tcp_payload_rd_data(tcp_tx_payload_rd_data),
       .tcp_payload_rd_en(tcp_tx_payload_rd_en),
       .tcp_payload_rd_ad(tcp_tx_payload_rd_ad),
 
-      .phy_txd  (phy_txd),
-      .phy_txctl(phy_txctl)
+      .mac_txd (mac_txd),
+      .mac_txen(mac_txen)
   );
   // RX path
   reg [7:0] rxd;
-  wire rxc, rx_dv, rx_er;
+  wire rx_dv, rx_er;
   rgmii_rcv rcv (
       .rst(rst),
       .mii_rxc(phy_rxc),
       .mii_rxd(phy_rxd),
       .mii_rxctl(phy_rxctl),
 
-      .rxc  (rxc),
+      // .rxc  (rxc),
       .rxd  (rxd),
       .rx_dv(rx_dv),
       .rx_er(rx_er)
@@ -99,13 +112,14 @@ module mac (
       .WIDTH(9),
       .DEPTH(4)
   ) _delay (
-      .clk(rxc),
+      .clk(phy_rxc),
       .rst(rst),
       .data_in({rxd, rx_dv}),
       .data_out({rxd_delayed, rx_dv_delayed})
   );
   reg arp_decode_valid;
   reg ip_valid;
+  reg other_err;
   reg rgmii_rcv_busy;
   reg rgmii_rcv_crc_err;
   // NOTE: since the use case is behind a reverse proxy, there is only ever
@@ -114,7 +128,7 @@ module mac (
   mac_decode #(
       .MAC_ADDR(LOC_MAC_ADDR)
   ) _mac_decode (
-      .clk(rxc),
+      .clk(phy_rxc),
       .rst(rst),
       .rxd_realtime(rxd),
       .rx_dv_realtime(rx_dv),
@@ -124,6 +138,7 @@ module mac (
       .sa(mac_sa),
       .busy(rgmii_rcv_busy),
       .crc_err(rgmii_rcv_crc_err),
+      .other_err(other_err),
       .arp_decode_valid(arp_decode_valid),
       .ip_valid(ip_valid)
   );
@@ -132,15 +147,15 @@ module mac (
   reg ip_done;
   reg [3:0] ip_ihl;
   // reg [31:0] ip_sa;
-  reg [31:0] ip_da;
+  reg [31:0] ip_da, ip_sa;
   reg [15:0] ip_payload_size;
   ip_decode ip_decoder (
-      .clk(rxc),
+      .clk(phy_rxc),
       .rst(rst),
       .valid(ip_valid),
       .din(rxd_delayed),
       .packet_size(ip_payload_size),
-      .sa(packet.peer_addr),
+      .sa(ip_sa),
       .da(ip_da),
       .ihl(ip_ihl),
       .err(ip_err),
@@ -150,43 +165,59 @@ module mac (
   tcp::packet_t packet;
   reg [7:0] tcp_payload;
   reg tcp_decode_payload_valid, tcp_decode_done, tcp_decode_err;
+  reg [15:0] tcp_decode_peer_port;
+  reg [31:0] tcp_decode_sequence_num, tcp_decode_ack_num;
+  reg [7:0] tcp_decode_flags;
+  reg [15:0] tcp_decode_payload_size, tcp_decode_window;
   tcp_decode tcp_dec (
-      .clk(rxc),
+      .clk(phy_rxc),
       .rst(rst),
       .valid(ip_done),
       .din(rxd_delayed),
-      .ip_sa(packet.peer_addr),
+      .ip_sa(ip_sa),
       .ip_da(ip_da),
       .ip_ihl(ip_ihl),
       .ip_payload_size(ip_payload_size),
 
-      .source_port(packet.peer_port),
+      .source_port(tcp_decode_peer_port),
       .dest_port(),
-      .sequence_num(packet.sequence_num),
-      .flags(packet.flags),
-      .ack_num(packet.ack_num),
-      .window(packet.window),
+      .sequence_num(tcp_decode_sequence_num),
+      .flags(tcp_decode_flags),
+      .ack_num(tcp_decode_ack_num),
+      .window(tcp_decode_window),
       .payload(tcp_payload),
       .payload_valid(tcp_decode_payload_valid),
-      .payload_size(packet.payload_size),
+      .payload_size(tcp_decode_payload_size),
 
       .done(tcp_decode_done),
       .err (tcp_decode_err)
   );
 
-  reg sm_accept_payload, sm_reject_payload;
+  reg incoming_tcp;
+  always @(posedge clk) begin
+    incoming_tcp <= tcp_decode_done;
+    if (tcp_decode_done) begin
+      packet.peer_addr <= ip_sa;
+      packet.peer_port <= tcp_decode_peer_port;
+      packet.payload_addr <= '0;
+      packet.payload_size <= tcp_decode_payload_size;
+      packet.flags <= tcp_decode_flags;
+      packet.ack_num <= tcp_decode_ack_num;
+      packet.sequence_num <= tcp_decode_sequence_num;
+    end
+  end
+
   reg tcp_arb_rdy, tcp_payload_valid;
-  tcp::tcb_t tcb_sm, tcb_arb;
-  reg tcp_sm_is_rx, tcp_sm_is_tx;
   reg [31:0] tcp_tx_payload_rd_data;
   tcp_arbiter _arb (
-      .rxc(rxc),
+      .clk(clk),
+      .rst(rst),
+      .rxc(phy_rxc),
       .tcp_rx_payload_valid(tcp_decode_payload_valid),
       .tcp_rx_payload_data(tcp_payload),
       .tcp_rx_payload_rd_en(tcp_tx_payload_rd_en),
+      .tcp_rx_payload_rd_valid(tcp_tx_payload_rd_valid),
       .tcp_rx_payload_rd_data(tcp_tx_payload_rd_data),
-      .clk(clk),
-      .rst(rst),
       .rdy(tcp_arb_rdy),
       .tcp_echo_en(tcp_echo_en),
       .is_tx(),
@@ -194,39 +225,20 @@ module mac (
       .to_send_peer_port(),
       .to_send_payload_addr(),
       .to_send_payload_size(),
-      .is_rx(tcp_decode_done && !tcp_decode_err),
-      .pkt(packet),
-      .sm_reject_payload(sm_reject_payload),
-      .sm_accept_payload(sm_accept_payload),
-      .i_tcb(tcb_sm),
+      .is_rx(incoming_tcp),
+      .packet(packet),
 
-      .sm_tcp_is_rx(tcp_sm_is_rx),
-      .sm_tcp_is_tx(tcp_sm_is_tx),
       .tcp_payload_valid(tcp_payload_valid),
+      .send_tcp(send_tcp),
+      .pkt_to_send(tcp_tx_packet_pending)
       // .tcp_payload_addr(),
-      .o_tcb(tcb_arb)
-  );
-
-  tcp_sm sm (
-      .clk(clk),
-      .rst(rst),
-      .current_tcb(tcb_arb),
-      .is_tx(tcp_sm_is_tx),
-      .is_rx(tcp_sm_is_rx),
-      .incoming_pkt(packet),
-
-      .tx_en(send_tcp),
-      .pkt_to_send(tcp_tx_packet_pending),
-      .next_tcb(tcb_sm),
-      .accept_payload(sm_accept_payload),
-      .reject_payload(sm_reject_payload)
   );
 
   // Handle up to 2 in flight outgoing packets since we do not implement any
   // delayed ACK, every received packet will have 1 ACK reply and if the
   // response from our application is too quick there needs to be a buffer
   fifo #(
-      .DATA_WIDTH($bits(tcp::packet_t)),
+      .DATA_WIDTH(187),
       .DEPTH(2)
   ) outgoing_pkt_queue (
       .clk  (clk),
@@ -244,7 +256,7 @@ module mac (
   reg [47:0] arp_sha, arp_tha, arp_encode_tha;
   reg [31:0] arp_spa, arp_tpa, arp_encode_tpa;
   arp_decode arp_d (
-      .clk  (rxc),
+      .clk  (phy_rxc),
       .rst  (rst),
       .valid(arp_decode_valid),
       .din  (rxd_delayed),
@@ -259,6 +271,10 @@ module mac (
 `ifdef DEBUG
   reg uart_valid = '0;
   reg [7:0] uart_data = '0;
+  always @(posedge clk) begin
+    uart_valid <= rx_dv_delayed;
+    uart_data  <= rxd_delayed;
+  end
   uart _uart (
       .clk(clk),
       .rst(rst),
@@ -269,12 +285,26 @@ module mac (
   );
 `endif
 
-  always @(posedge clk) begin
+  reg arp_done_strectched;
+  pulse_stretcher stretcher (
+      .clk(phy_rxc),
+      .d  (arp_done),
+      .q  (arp_done_strectched)
+  );
+  synchronizer sync (
+      .clk(clk),
+      .sig(arp_done),
+      .q  (arp_done_sync)
+  );
+  reg arp_done_sync;
+  reg arp_done_prev;
+  always @(posedge clk) begin : generate_send_pulse
     send_arp <= '0;
-    if (arp_done && arp_tpa == LOC_IP_ADDR) begin
-      send_arp <= 1;
+    arp_done_prev <= arp_done_sync;
+    if (!arp_done_prev && arp_done_sync && arp_tpa == LOC_IP_ADDR) begin
       arp_encode_tpa <= arp_spa;
       arp_encode_tha <= arp_sha;
+      send_arp <= 1;
     end
   end
 

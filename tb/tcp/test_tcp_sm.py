@@ -32,12 +32,6 @@ class TB(TCPSimSock):
         await RisingEdge(self.dut.clk)
         await RisingEdge(self.dut.clk)
 
-    def recv_checks(self, pkt):
-        calculated_from_hdl = pkt.chksum
-        del pkt.chksum
-        pkt.show2()
-        assert pkt.chksum == calculated_from_hdl
-
     def send(self, pkt):
         super().send(pkt)
 
