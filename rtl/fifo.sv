@@ -36,8 +36,8 @@ module fifo #(
       end
       if (rd_en && !empty) begin
         rd_ptr <= rd_ptr + 1;
+        dout <= mem[rd_ptr[ADDR_WIDTH-1:0]];
       end
-      dout <= mem[rd_ptr[ADDR_WIDTH-1:0]];
     end
   end
 

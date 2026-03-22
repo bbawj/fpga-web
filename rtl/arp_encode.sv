@@ -46,7 +46,7 @@ module arp_encode #(
   localparam [7:0] COUNT_TPA = 8'd28;
 `endif
 
-  typedef enum logic [4:0] {
+  typedef enum logic [7:0] {
     S_IDLE,
     S_HW_TYPE_0,    // 0x00
     S_HW_TYPE_1,    // 0x01
@@ -78,23 +78,15 @@ module arp_encode #(
     S_TPA_3
   } state_t;
 
-  state_t state, next_state;
-  logic [7:0] next_dout;
-  logic       next_done;
+  state_t       state;
+  state_t       next_state;
+  logic   [7:0] next_dout;
+  logic         next_done;
 
   always_comb begin
-    next_done  = 1'b0;
     next_state = state;
 
     case (state)
-      // S_IDLE: begin
-      //   next_state = en ? S_HW_TYPE_0 : S_IDLE;
-      //   next_dout  = 8'h00;
-      // end
-      // S_HW_TYPE_0: begin
-      //   next_state = S_HW_TYPE_1;
-      //   next_dout  = ARP_HW_TYPE[15:8];
-      // end
       S_HW_TYPE_1: begin
         next_state = S_PROT_TYPE_0;
         next_dout  = ARP_HW_TYPE[7:0];
@@ -201,11 +193,10 @@ module arp_encode #(
       end
       S_TPA_3: begin
         next_state = S_HW_TYPE_1;
-        next_done  = 1'b1;
         next_dout  = tpa[7:0];
       end
       default: begin
-        next_state = S_IDLE;
+        next_state = S_HW_TYPE_1;
         next_dout  = 8'h00;
       end
     endcase
@@ -219,7 +210,7 @@ module arp_encode #(
     end else begin
       state <= en ? next_state : S_HW_TYPE_1;
       dout  <= en ? next_dout : ARP_HW_TYPE[15:8];
-      done  <= next_done;
+      done  <= state == S_TPA_3;
     end
   end
 

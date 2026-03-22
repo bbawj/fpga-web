@@ -186,7 +186,7 @@ module mac_encode #(
       S_TYPE_1: next_state = S_PAYLOAD;
 
       S_PAYLOAD: begin
-        if (!en) next_state = (counter < COUNT_MIN_PAYLOAD) ? S_PAD : S_FCS_0;
+        if (!en) next_state = (counter < COUNT_MIN_PAYLOAD - 1) ? S_PAD : S_FCS_0;
         else if (counter == COUNT_MAX_PAYLOAD - 1) next_state = S_FCS_0;
         else next_state = S_PAYLOAD;
       end

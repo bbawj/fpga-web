@@ -2,10 +2,12 @@
 
 module rgmii_tx (
     input wire clk,
+    input wire clk90,
     input wire rst,
     input wire mac_phy_txen,
     input wire [7:0] mac_phy_txd,
 
+    output wire phy_txc,
     output wire phy_txctl,
     output wire [3:0] phy_txd
 );
@@ -40,6 +42,16 @@ module rgmii_tx (
       .d1 (txd_1),
       .d2 (txd_2),
       .q  (phy_txd)
+  );
+
+  oddr #(
+      .INPUT_WIDTH(1)
+  ) txc_oddr (
+      .rst(rst),
+      .clk(clk90),
+      .d1 (1'b1),
+      .d2 (1'b0),
+      .q  (phy_txc)
   );
 
 endmodule

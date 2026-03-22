@@ -21,6 +21,7 @@ module top(
 // sysclk used to load the tx lines
 reg pll_locked;
 wire sysclk;
+wire sysclk90;
 `ifdef SPEED_100M
 // Phase range from 0 to 46, 0 phase is 23. Each division is 1/24 degrees
 clk_gen #(.SYSCLK_DIV(24), .TXC_DIV(24), .TXC_PHASE(29), .MDC_DIV(240), .FB_DIV(1))
@@ -28,10 +29,11 @@ clk_gen #(.SYSCLK_DIV(24), .TXC_DIV(24), .TXC_PHASE(29), .MDC_DIV(240), .FB_DIV(
 // Phase range from 0 to 8, 0 phase is 4. Each division is 1/5 degrees
 clk_gen #(.SYSCLK_DIV(5), .TXC_DIV(5), .TXC_PHASE(5), .MDC_DIV(250), .FB_DIV(5))
 `endif
-  _clk_gen (.clk_in(clk_25mhz), .sysclk(sysclk), .txc(phy0_txc), .mdc(mdc), .clk_locked(pll_locked));
+  _clk_gen (.clk_in(clk_25mhz), .sysclk(sysclk), .txc(sysclk90), .mdc(mdc), .clk_locked(pll_locked));
 
 wire rst;
-areset _areset(.clk(sysclk), .rst_n(button), .rst(rst));
+assign led = ~rst;
+areset _areset(.clk(sysclk), .rst_n(button & pll_locked), .rst(rst));
 
 // wire [15:0] mdio_data;
 // wire mdio_valid;
@@ -54,10 +56,12 @@ mac mac_instance(
   // We use base clock here instead of PHY_TXC as we purposely hold the data
   // 90 degrees before TXC edge
   .clk(sysclk),
+  .clk90(sysclk90),
   .rst(rst),
   .led(),
   .uart_tx(uart_tx),
 
+  .phy_txc(phy0_txc),
   .phy_txd(phy0_txd),
   .phy_txctl(phy0_txctl),
 

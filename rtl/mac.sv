@@ -3,12 +3,15 @@
 
 module mac (
     input wire clk,
+    // for TXC
+    input wire clk90,
     input wire rst,
     input tcp_echo_en,
     output wire led,
     output wire uart_tx,
 
     // PHY0 MII Interface
+    output wire phy_txc,
     output reg [3:0] phy_txd,
     output reg phy_txctl,
     input wire [3:0] phy_rxd,
@@ -53,9 +56,11 @@ module mac (
   reg [7:0] mac_txd;
   rgmii_tx _rgmii_tx (
       .clk(clk),
+      .clk90(clk90),
       .rst(rst),
       .mac_phy_txen(mac_txen),
       .mac_phy_txd(mac_txd),
+      .phy_txc(phy_txc),
       .phy_txctl(phy_txctl),
       .phy_txd(phy_txd)
   );
