@@ -48,6 +48,7 @@ module tcp_decode #(
     FLAGS,
     WNDW,
     CHECKSUM,
+    URG,
     PAYLOAD,
     DONE
   } state_t;
@@ -77,7 +78,8 @@ module tcp_decode #(
       OFS: if (counter == 'd12) next_state = FLAGS;
       FLAGS: if (counter == 'd13) next_state = WNDW;
       WNDW: if (counter == 'd15) next_state = CHECKSUM;
-      CHECKSUM: if (counter == 'd17) next_state = PAYLOAD;
+      CHECKSUM: if (counter == 'd17) next_state = URG;
+      URG: if (counter == 'd19) next_state = PAYLOAD;
       PAYLOAD: if (!valid) next_state = DONE;
       DONE: next_state = IDLE;
       default: next_state = IDLE;
@@ -127,7 +129,7 @@ module tcp_decode #(
       FLAGS: payload_size <= payload_size - data_offset * 4;
       PAYLOAD: begin
         //urg <= working[15:0];
-        payload <= working[7:0];
+        payload <= din;
         payload_valid <= 1'b1;
         // TODO: check overshoot MSS
         if (counter == MSS + 'd20) begin
