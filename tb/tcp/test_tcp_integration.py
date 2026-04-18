@@ -6,7 +6,7 @@ from cocotb.triggers import RisingEdge, with_timeout, ReadWrite
 from cocotb.clock import Clock, Timer
 from cocotb.utils import get_sim_steps
 from cocotb_tools.runner import get_runner
-from scapy.all import Raw, RandString, Ether, TCP, IP
+from scapy.all import Raw, RandString, Ether, TCP, IP, Padding
 from utils import TCPSimSock, TCP_client_sim
 from cocotbext.eth import GmiiFrame, RgmiiPhy
 import logging
@@ -27,10 +27,10 @@ class TB:
 
         if speed_100:
             cocotb.start_soon(Clock(dut.clk, 40, units='ns').start())
-            cocotb.start_soon(self._run_clocks(dut.phy_txc, 90, 40))
+            cocotb.start_soon(self._run_clocks(dut.clk90, 90, 40))
         else:
             cocotb.start_soon(self._run_clocks(dut.clk, 0, 8))
-            cocotb.start_soon(self._run_clocks(dut.phy_txc, 90, 8))
+            cocotb.start_soon(self._run_clocks(dut.clk90, 90, 8))
         dut.rst.value = cocotb.handle.Immediate(1)
         self.rgmii_phy = RgmiiPhy(dut.phy_txd, dut.phy_txctl, dut.phy_txc,
                                   dut.phy_rxd, dut.phy_rxctl, dut.phy_rxc, dut.rst, speed=100e6 if speed_100 else 1000e6)
@@ -93,6 +93,7 @@ async def tcp_integration_basic(dut):
 class TCPIntegrated(TCPSimSock):
     def __init__(self, tb):
         self.tb = tb
+        self.last = None
         super().__init__(tb.dut.clk)
 
     async def send_pkt_to_hdl(self, pkt):
@@ -100,17 +101,31 @@ class TCPIntegrated(TCPSimSock):
         await ReadWrite()
         cocotb.log.info("packet to HDL")
         pkt = Ether(dst=dst_mac, src=src_mac) / pkt
+        # if len(pkt) < 60:
+        #     pkt = pkt / Padding(60-len(pkt))
         cocotb.log.info(pkt.show2(dump=True))
         test_frame = GmiiFrame.from_payload(bytes(pkt))
+        self.last = pkt
         await self.tb.rgmii_phy.rx.send(test_frame)
 
     async def recv_async(self):
+        # TODO: check that echoed payload is matching
         while True:
             rx_frame = await with_timeout(self.tb.rgmii_phy.tx.recv(), 50000, "ns")
             rx = Ether(rx_frame.get_payload())
             cocotb.log.info("packet received from HDL")
             cocotb.log.info(rx.show2(dump=True))
             assert rx_frame.check_fcs()
+            actual_ip_chksum = rx[IP].chksum
+            actual_tcp_chksum = rx[TCP].chksum
+            del rx[TCP].chksum
+            del rx[IP].chksum
+            rx = rx.__class__(bytes(rx))
+            rx.show2()
+            assert rx[IP].chksum == actual_ip_chksum
+            assert rx[TCP].chksum == actual_tcp_chksum
+            # FIXME: will fail if payload is less than 24 bytes as the
+            assert not self.last[TCP].payload or self.last[TCP].payload == rx[TCP].payload, "Payload not echoed properly"
             self.from_hdl.put(rx, block=False)
 
 
@@ -120,7 +135,7 @@ class PacketGen:
     """
 
     def __init__(self, ip, port):
-        self.payload = Raw(RandString(size=120))
+        self.payload = Raw(RandString(size=20))
         self.sent = False
         self.from_bench = Queue()
 
@@ -156,6 +171,68 @@ async def tcp_integration_full(dut):
     await Timer(5000, "ns")
 
 
+# @cocotb.test()
+def check_check(dut):
+    b = bytes.fromhex(
+        "b025aa3306fedeadbeefcafe080045000033000140004006616769696969c0a845e21f90a508fa53ed59e0702a11501805b8f3860000000000000000000000000063cb1de5")
+
+    frame = GmiiFrame.from_raw_payload(b)
+    cocotb.log.info(frame.get_fcs())
+    assert frame.check_fcs()
+
+    pkt = Ether(b)
+    actual_chksum = pkt[TCP].chksum
+    cocotb.log.info("yeet")
+    pkt.show2()
+    del pkt[TCP].chksum
+    pkt = pkt.__class__(bytes(pkt))
+
+    correct_chksum = pkt[TCP].chksum
+
+    del pkt[TCP].chksum
+    pkt[TCP].payload = Raw(bytes.fromhex(
+        "6563686f6f6f6f6f6f6f0a"))
+    pkt = pkt.__class__(bytes(pkt))
+    cocotb.log.info(pkt.show2(dump=True))
+    cocotb.log.info(actual_chksum)
+    cocotb.log.info(correct_chksum)
+    cocotb.log.info(pkt[TCP].chksum)
+
+    assert actual_chksum == pkt[TCP].chksum
+
+    assert False
+
+
+# @cocotb.test()
+def check_again(dut):
+    b = "b025aa3306fedeadbeefcafe080045000037000140004006616369696969c0a845e21f9095bc1f514b2a007108e5501805b8895b000000000000000000000000000000000014d838d8"
+    check(b, "776f6f6f6f6f6f6f6f6f6f6f6f6f0a")
+    b = "b025aa3306fedeadbeefcafe08004500002c000140004006616e69696969c0a845e21f90d1e6731cd5f3bc52576a501805b89bf5000000000000000009ce4b8a"
+    check(b, "776f6f0a")
+
+
+def check(b, payload):
+    b = bytes.fromhex(b)
+    frame = GmiiFrame.from_raw_payload(b)
+    cocotb.log.info(frame.get_fcs())
+    assert frame.check_fcs()
+    pkt = Ether(b)
+    actual_chksum = pkt[TCP].chksum
+    pkt.show2()
+    del pkt[TCP].chksum
+    pkt = pkt.__class__(bytes(pkt))
+    pkt.show2()
+
+    correct_chksum = pkt[TCP].chksum
+    del pkt[TCP].chksum
+    pkt[TCP].payload = Raw(bytes.fromhex(payload))
+    pkt = pkt.__class__(bytes(pkt))
+
+    cocotb.log.info(actual_chksum)
+    cocotb.log.info(correct_chksum)
+    cocotb.log.info(pkt[TCP].chksum)
+
+
 @pytest.mark.parametrize("speed_100", [False])
 def test_simple_dff_runner(speed_100):
     sim = os.getenv("SIM", "verilator")
@@ -184,9 +261,15 @@ def test_simple_dff_runner(speed_100):
         f"{source_folder}/arp_encode.sv",
         f"{source_folder}/rgmii_rcv.sv",
         f"{source_folder}/rgmii_tx.sv",
-        f"{source_folder}/clk_gen.sv",
         f"{source_folder}/clk_divider.sv",
+        f"{source_folder}/delay.sv",
+        f"{source_folder}/fifo.sv",
+        f"{source_folder}/pulse_stretcher.sv",
+        f"{source_folder}/tcb.sv",
         f"{source_folder}/crc32.sv"]
+
+    # if sim == "verilator":
+    #     sources.append("../../config.vlt")
 
     runner = get_runner(sim)
     runner.build(
@@ -199,7 +282,10 @@ def test_simple_dff_runner(speed_100):
         defines={"SPEED_100M": "True"} if speed_100 else {},
         includes=[f"{source_folder}/"],
         build_args=["--threads", "8", "--trace-fst",
-                    "--trace-structs"] if sim == "verilator" else [
+                    "--trace-structs", "--bbox-unsup",
+                    "-y", "/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/",
+                    "-y", "/home/bawj/lscc/diamond/3.14/cae_library/simulation/vhdl/ecp5u/",
+                    ] if sim == "verilator" else [
             "-y/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/"],
         timescale=("1ns", "1ps"),
     )

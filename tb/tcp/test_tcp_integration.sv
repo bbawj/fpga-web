@@ -1,11 +1,12 @@
 module test_tcp_integration (
     input wire clk,
+    input wire clk90,
     input wire rst,
     input wire tcp_echo_en,
 
     output reg [3:0] phy_txd,
     output reg phy_txctl,
-    input wire phy_txc,
+    output wire phy_txc,
     input wire [3:0] phy_rxd,
     input wire phy_rxctl,
     input wire phy_rxc
@@ -13,11 +14,13 @@ module test_tcp_integration (
 
   mac mac_instance (
       .clk(clk),
+      .clk90(clk90),
       .rst(rst),
       .led(),
       .tcp_echo_en(tcp_echo_en),
 
       .uart_tx  (),
+      .phy_txc  (phy_txc),
       .phy_txd  (phy_txd),
       .phy_txctl(phy_txctl),
 
