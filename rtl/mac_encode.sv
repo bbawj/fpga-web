@@ -49,7 +49,7 @@ module mac_encode #(
       .crc_out(crc_out)
   );
   /* verilator lint_on WIDTHTRUNC */
-  typedef enum logic [5:0] {
+  typedef enum {
     S_IDLE,
     // Preamble: 7 bytes of 0x55
     S_PRE_0,
@@ -303,7 +303,10 @@ module mac_encode #(
         end
 
         // FCS bytes are ~CRC LSB-first
-        S_FCS_0: mac_txd <= ~crc_out[7:0];
+        S_FCS_0: begin
+          send_next <= 1'b0;
+          mac_txd   <= ~crc_out[7:0];
+        end
         S_FCS_1: mac_txd <= ~crc_out[15:8];
         S_FCS_2: mac_txd <= ~crc_out[23:16];
         S_FCS_3: mac_txd <= ~crc_out[31:24];
