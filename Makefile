@@ -7,6 +7,7 @@ SOURCEDIR=rtl
 SOURCES = $(SOURCEDIR)/areset.sv \
 	$(SOURCEDIR)/async_fifo_2deep.sv \
 	$(SOURCEDIR)/tcp.sv \
+	$(SOURCEDIR)/tcb.sv \
 	$(SOURCEDIR)/delay.sv \
 	$(SOURCEDIR)/arp_decode.sv \
 	$(SOURCEDIR)/arp_encode.sv \
@@ -32,6 +33,7 @@ SOURCES = $(SOURCEDIR)/areset.sv \
 	$(SOURCEDIR)/synchronizer.sv \
 	$(SOURCEDIR)/tcp_decode.sv \
 	$(SOURCEDIR)/top_sdram_debug.sv \
+	$(SOURCEDIR)/top_ebr_debug.sv \
 	$(SOURCEDIR)/uart.sv \
 	$(SOURCEDIR)/udp_decode.sv \
 	$(SOURCEDIR)/lfsr_rng.sv \
@@ -39,13 +41,21 @@ SOURCES = $(SOURCEDIR)/areset.sv \
 	$(SOURCEDIR)/tcp_sm.sv \
 	$(SOURCEDIR)/tcp_arbiter.sv \
 	$(SOURCEDIR)/tcp_encode.sv \
+	tb/ebr/test_ebr_debug.sv \
 	$(SOURCEDIR)/var_int_decoder.sv
 
 MODULE=top
 TOP=$(MODULE)
+.PHONY: sdram
 sdram: MODULE="rtl/top_sdram_debug.sv"
 sdram: TOP=top_sdram_debug
 sdram: synth
+
+.PHONY: ebr
+ebr: MODULE="rtl/top_ebr_debug.sv"
+ebr: TOP=top_ebr_debug
+ebr: SOURCES = $(SOURCES) tb/ebr/test_ebr_debug.sv
+ebr: synth route flash
 
 diag: SHOW_CMD=; select -list; select top/mac_instance.tcb_sm; select -add top/mac_instance.tx.tcp_enc*; show
 
@@ -76,3 +86,7 @@ clean:
 .PHONY: arp
 arp:
 	sudo arping -c 1 -i enp61s0 -t DE:AD:BE:EF:CA:FE -S 192.168.69.100 105.105.105.105
+
+.PHONY: tcp
+tcp:
+	nc 105.105.105.105 8080
