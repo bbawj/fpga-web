@@ -28,6 +28,7 @@ module tcp_decode #(
     output reg payload_valid,
     output reg [7:0] payload,
     output reg [15:0] payload_size,
+    output reg [15:0] payload_checksum,
     output reg err,
     output reg done
 );
@@ -105,9 +106,17 @@ module tcp_decode #(
   end
 
   always @(posedge clk) begin
-    if (!valid) working_checksum <= '0;
-    else if (counter != '0 && !counter[0])
+    if (state == IDLE) begin
+      working_checksum <= '0;
+      payload_checksum <= '0;
+    end  // every 2 bytes
+    else if (counter != '0 && !counter[0]) begin
       working_checksum <= ones_comp(working_checksum, working[15:0]);
+      if (state == PAYLOAD) payload_checksum <= ones_comp(payload_checksum, working[15:0]);
+      // odd-sized payload, pad with zeroes for checksum calc
+      if (state != PAYLOAD && prev_state == PAYLOAD)
+        payload_checksum <= ones_comp(payload_checksum, {working[7:0], 8'b0});
+    end
   end
 
   always @(posedge clk) begin

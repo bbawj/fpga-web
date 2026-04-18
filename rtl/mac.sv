@@ -173,7 +173,7 @@ module mac (
   reg [15:0] tcp_decode_peer_port;
   reg [31:0] tcp_decode_sequence_num, tcp_decode_ack_num;
   reg [7:0] tcp_decode_flags;
-  reg [15:0] tcp_decode_payload_size, tcp_decode_window;
+  reg [15:0] tcp_decode_payload_size, tcp_decode_window, tcp_decode_payload_checksum;
   tcp_decode tcp_dec (
       .clk(phy_rxc),
       .rst(rst),
@@ -193,8 +193,10 @@ module mac (
       .payload(tcp_payload),
       .payload_valid(tcp_decode_payload_valid),
       .payload_size(tcp_decode_payload_size),
+      .payload_checksum(tcp_decode_payload_checksum),
 
       .done(tcp_decode_done),
+      // TODO: use this err
       .err (tcp_decode_err)
   );
 
@@ -209,12 +211,13 @@ module mac (
       packet.flags <= tcp_decode_flags;
       packet.ack_num <= tcp_decode_ack_num;
       packet.sequence_num <= tcp_decode_sequence_num;
+      packet.checksum <= tcp_decode_payload_checksum;
     end
   end
 
   reg tcp_arb_rdy, tcp_payload_valid;
   reg [31:0] tcp_tx_payload_rd_data;
-  tcp_arbiter _arb (
+  tcp_arbiter arb (
       .clk(clk),
       .rst(rst),
       .rxc(phy_rxc),
@@ -235,7 +238,7 @@ module mac (
 
       .tcp_payload_valid(tcp_payload_valid),
       .send_tcp(send_tcp),
-      .pkt_to_send(tcp_tx_packet_pending)
+      .o_pkt_to_send(tcp_tx_packet_pending)
       // .tcp_payload_addr(),
   );
 

@@ -19,11 +19,15 @@ module tcp_encode #(
     input [15:0] window,
     input [15:0] initial_checksum,
 
+    // asserted 1 cycle before "done"
+    output reg pre_done_1,
+    // asserted 2 cycle before "done"
+    output reg pre_done_2,
     output reg done,
     output reg [7:0] dout
 );
 
-  reg [17:0] checksum = '0;
+  reg [18:0] checksum = '0;
   reg [15:0] working = '0;
   reg [15:0] counter = '0;
 
@@ -147,6 +151,11 @@ module tcp_encode #(
   end
 
   always_ff @(posedge clk) begin
+    pre_done_1 <= state == URG_1;
+    pre_done_2 <= state == CHECKSUM_2;
+  end
+
+  always_ff @(posedge clk) begin
     if (rst) begin
       state <= SRC_1;
       dout  <= '0;
@@ -160,19 +169,20 @@ module tcp_encode #(
 
   always @(posedge clk) begin
     case (state)
-      SRC_1: checksum <= en ? {2'b0, MY_TCP_PORT} : {2'b0, initial_checksum};
-      DEST_2, SEQ_2, SEQ_4, ACK_2, ACK_4, FLAGS, WNDW_2: checksum <= checksum + {2'b0, working};
-      DEST_1: checksum <= checksum + {2'b0, ip_da[15:0]};
-      SEQ_1: checksum <= checksum + {2'b0, ip_da[31:16]};
-      SEQ_3: checksum <= checksum + {2'b0, ip_sa[31:16]};
-      ACK_1: checksum <= checksum + {2'b0, ip_sa[15:0]};
-      ACK_3: checksum <= checksum + {2'b0, tcp_len};
-      OFS: checksum <= checksum + {18'd6};
-      WNDW_1: begin
-        logic [17:0] sum;
-        sum = {2'b0, checksum[15:0]} + {16'b0, checksum[17:16]};
-        sum = {2'b0, sum[15:0]} + {16'b0, sum[17:16]};
-        checksum <= {2'b0, sum[15:0]};
+      SRC_1: checksum <= en ? checksum + {3'b0, initial_checksum} : {3'b0, MY_TCP_PORT};
+      DEST_2, SEQ_2, SEQ_4, ACK_2, ACK_4, FLAGS: checksum <= checksum + {3'b0, working};
+      DEST_1: checksum <= checksum + {3'b0, ip_da[15:0]};
+      SEQ_1: checksum <= checksum + {3'b0, ip_da[31:16]};
+      SEQ_3: checksum <= checksum + {3'b0, ip_sa[31:16]};
+      ACK_1: checksum <= checksum + {3'b0, ip_sa[15:0]};
+      ACK_3: checksum <= checksum + {3'b0, tcp_len};
+      OFS: checksum <= checksum + {19'd6};
+      WNDW_1: checksum <= checksum + {3'b0, window};
+      WNDW_2: begin
+        logic [18:0] sum;
+        sum = {3'b0, checksum[15:0]} + {16'b0, checksum[18:16]};
+        sum = {3'b0, sum[15:0]} + {16'b0, sum[18:16]};
+        checksum <= {3'b0, sum[15:0]};
       end
       CHECKSUM_1, CHECKSUM_2, URG_1, URG_2: begin
       end
