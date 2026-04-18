@@ -8,13 +8,11 @@ package tcp;
     RST = 8'h4,
     SYN = 8'h2,
     FIN = 8'h1
-  } TCP_FLAGS;
+  } tcp_flags_t;
   typedef enum logic [3:0] {
     LISTEN,
     SYN_RECV,
-    SYN_RECV2,
     ESTABLISHED,
-    ESTABLISHED2,
     FINWAIT,
     FINWAIT2,
     CLOSEWAIT,
@@ -39,12 +37,12 @@ package tcp;
     // precomputed ones complement sum of payload and IP psuedo header
     logic [15:0] checksum;
     logic [7:0]  flags;
-    logic [15:0] window;
     // Ack number expected to receive for this packet. 
     // Filled up only at the time when the packet is sent as it may change.
     logic [31:0] ack_num;
     // sequence_num of received tcp packet
     logic [31:0] sequence_num;
+    logic [15:0] window;
   } packet_t;
   typedef struct packed {
     // to identify this TCB uniquely
@@ -58,15 +56,6 @@ package tcp;
     logic [31:0] ack_num;
     logic [15:0] window;
 
-    // lists that identifies packets to be sent
-    // packet_t [BUFF_SIZE-1:0] to_be_sent;
-    logic [BUFF_WIDTH:0] to_be_sent_wr_ptr;
-    logic [BUFF_WIDTH:0] to_be_sent_rd_ptr;
-    //
-    // // list of packets already sent and waiting to be acked by peer
-    // packet_t [BUFF_SIZE-1:0] to_be_ack;
-    logic [BUFF_WIDTH:0] to_be_ack_wr_ptr;
-    logic [BUFF_WIDTH:0] to_be_ack_rd_ptr;
     CONN_STATE state;
   } tcb_t;
 
