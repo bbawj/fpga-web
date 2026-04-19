@@ -1,7 +1,7 @@
 `default_nettype none
 module uart #(
     parameter DATA_WIDTH = 8,
-    parameter [2:0] BAUD_RATE = '0
+    parameter BAUD_RATE  = 38400
 ) (
     input wire clk,
     input wire rst,
@@ -13,7 +13,7 @@ module uart #(
 
   reg fifo_rd_en = 0;
   wire fifo_empty, fifo_full;
-  reg [DATA_WIDTH - 1:0] fifo_dout;
+  reg [DATA_WIDTH - 1:0] fifo_dout, fifo_dout_q;
   fifo #(
       .DATA_WIDTH(DATA_WIDTH),
       .DEPTH(128)
@@ -32,15 +32,22 @@ module uart #(
   typedef enum {
     IDLE,
     START,
-    DATA,
+    DATA0,
+    DATA1,
+    DATA2,
+    DATA3,
+    DATA4,
+    DATA5,
+    DATA6,
+    DATA7,
     STOP
-  } UART_STATE;
-  UART_STATE uart_state = IDLE;
+  } uart_state_t;
+  uart_state_t uart_state = IDLE, prev_uart_state;
 
 `ifdef SPEED_100M
-  localparam CLOCKS_PER_BAUD = 25_000_000 / 9600;
+  localparam CLOCKS_PER_BAUD = 25_000_000 / BAUD_RATE;
 `else
-  localparam CLOCKS_PER_BAUD = 125_000_000 / 9600;
+  localparam CLOCKS_PER_BAUD = 125_000_000 / BAUD_RATE;
 `endif
   reg [31:0] counter = CLOCKS_PER_BAUD;
   always @(posedge clk) begin
@@ -48,53 +55,89 @@ module uart #(
     else if (uart_state > IDLE) counter <= counter - 1;
   end
 
-  reg [2:0] bit_counter = '0;
-  reg [7:0] byte_counter = '0;
+  reg [7:0] byte_counter = '0, prev_byte_counter = '0;
   reg [8:0] shift_dout = '1;
   assign tx = shift_dout[0];
+  reg [31:0] working;
+
+  always @(posedge clk) begin
+    case (uart_state)
+      IDLE: shift_dout <= '1;
+      START: shift_dout <= '0;
+      DATA0: begin
+        shift_dout <= {1'b1, working[7:0]};
+        if (counter == 0) shift_dout <= {1'b1, shift_dout[8:1]};
+      end
+      STOP, DATA1, DATA2, DATA3, DATA4, DATA5, DATA6, DATA7: begin
+        if (counter == 0) shift_dout <= {1'b1, shift_dout[8:1]};
+      end
+      default: shift_dout <= '1;
+    endcase
+  end
+
+  always @(posedge clk) begin
+    prev_byte_counter <= byte_counter;
+    if (byte_counter == 0) working <= fifo_dout_q;
+    else if (prev_byte_counter != byte_counter) working <= working >> 8;
+  end
+
+  always @(posedge clk) begin
+    prev_uart_state <= uart_state;
+    fifo_rd_en <= 0;
+    if (uart_state == START && prev_uart_state != START) begin
+      fifo_rd_en <= 1;
+    end
+  end
 
   always @(posedge clk) begin
     if (rst) begin
-      uart_state  <= IDLE;
-      bit_counter <= '0;
-      fifo_rd_en  <= 0;
-      shift_dout  <= '1;
+      uart_state   <= IDLE;
+      byte_counter <= 0;
     end else begin
       case (uart_state)
         IDLE: begin
-          fifo_rd_en <= 0;
           if (!fifo_empty) begin
             uart_state <= START;
-            fifo_rd_en <= 1;
-            shift_dout <= {shift_dout[8:1], 1'b0};
           end
         end
         START: begin
-          fifo_rd_en <= 0;
+          fifo_dout_q <= fifo_dout;
           if (counter == 0) begin
-            uart_state <= DATA;
-            shift_dout <= {1'b1, fifo_dout};
+            uart_state <= DATA0;
           end
         end
-        DATA: begin
-          fifo_rd_en <= 0;
+        DATA0: begin
+          if (counter == 0) uart_state <= DATA1;
+        end
+        DATA1: begin
+          if (counter == 0) uart_state <= DATA2;
+        end
+        DATA2: begin
+          if (counter == 0) uart_state <= DATA3;
+        end
+        DATA3: begin
+          if (counter == 0) uart_state <= DATA4;
+        end
+        DATA4: begin
+          if (counter == 0) uart_state <= DATA5;
+        end
+        DATA5: begin
+          if (counter == 0) uart_state <= DATA6;
+        end
+        DATA6: begin
+          if (counter == 0) uart_state <= DATA7;
+        end
+        DATA7: begin
           if (counter == 0) begin
-            bit_counter <= bit_counter + 1;
-            shift_dout  <= {1'b1, shift_dout[8:1]};
-            if (bit_counter == 3'd7) begin
-              uart_state   <= STOP;
-              shift_dout   <= '1;
-              byte_counter <= byte_counter + 'b1;
-            end
+            uart_state   <= STOP;
+            byte_counter <= byte_counter + 'b1;
           end
         end
         // technically same as IDLE since we are only 1 STOP bit
         STOP: begin
-          fifo_rd_en <= 0;
           if (counter == 0) begin
             if (byte_counter < DATA_WIDTH / 8) begin
               uart_state <= START;
-              shift_dout <= {{DATA_WIDTH{1'b1}}, 1'b0};
             end else begin
               byte_counter <= '0;
 
@@ -102,16 +145,12 @@ module uart #(
                 uart_state <= IDLE;
               end else begin
                 uart_state <= START;
-                fifo_rd_en <= 1;
-                shift_dout <= {{DATA_WIDTH{'1}}, 1'b0};
               end
             end
           end
         end
         default: begin
           uart_state <= IDLE;
-          shift_dout <= '1;
-          fifo_rd_en <= 0;
         end
       endcase
     end
@@ -121,7 +160,6 @@ module uart #(
   logic f_past_valid;
   initial f_past_valid = 0;
   initial assume (valid == 1'b0);
-  wire [8:0] temp;
 
 
   always @(posedge clk) begin
@@ -132,7 +170,6 @@ module uart #(
   end
 
   always @* begin
-    temp = {9'('1), fifo_dout[7:bit_counter]};
     assume (!rst);
     if (f_past_valid) begin
       case (uart_state)
