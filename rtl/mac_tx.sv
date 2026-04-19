@@ -99,7 +99,7 @@ module mac_tx #(
           tcp_payload_rd_ad <= pkt_payload_addr;
           payload_buff_state <= BUFF_STATE_START;
           // RD_WIDTH is 32 whereas WR_WIDTH is 8
-          payload_counter <= pkt_payload_size >> 2;
+          payload_counter <= (pkt_payload_size >> 2) + ((pkt_payload_size[1:0] != '0) ? 'd1 : 'd0);
         end
       end
       BUFF_STATE_START: begin

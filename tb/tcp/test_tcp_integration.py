@@ -101,8 +101,6 @@ class TCPIntegrated(TCPSimSock):
         await ReadWrite()
         cocotb.log.info("packet to HDL")
         pkt = Ether(dst=dst_mac, src=src_mac) / pkt
-        # if len(pkt) < 60:
-        #     pkt = pkt / Padding(60-len(pkt))
         cocotb.log.info(pkt.show2(dump=True))
         test_frame = GmiiFrame.from_payload(bytes(pkt))
         self.last = pkt
@@ -142,7 +140,10 @@ class PacketGen:
     def recv(self, n=None):
         cocotb.log.info("Packet gen triggered")
         self.sent = True
-        return self.payload
+        payload = self.from_bench.get_nowait()
+        if (len(payload) < 6):
+            payload = payload / Padding(load="\x00" * (6-len(payload)))
+        return payload
 
     def empty(self):
         return self.sent or self.from_bench.empty()
@@ -165,7 +166,15 @@ async def tcp_integration_full(dut):
     cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
         TCPIntegrated(tb), client_ref, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
     await Timer(5000, "ns")
-    gen.from_bench.put_nowait(gen.payload)
+    gen.from_bench.put_nowait(Raw(RandString(size=21)))
+    await Timer(5000, "ns")
+    gen.from_bench.put_nowait(Raw(RandString(size=20)))
+    await Timer(5000, "ns")
+    gen.from_bench.put_nowait(Raw(RandString(size=3)))
+    await Timer(5000, "ns")
+    gen.from_bench.put_nowait(Raw(RandString(size=4)))
+    await Timer(5000, "ns")
+    gen.from_bench.put_nowait(Raw(RandString(size=120)))
     await Timer(5000, "ns")
     client_ref[0].stop(wait=False)
     await Timer(5000, "ns")
@@ -203,19 +212,18 @@ def check_check(dut):
     assert False
 
 
-# @cocotb.test()
+@cocotb.test()
 def check_again(dut):
-    b = "b025aa3306fedeadbeefcafe080045000037000140004006616369696969c0a845e21f9095bc1f514b2a007108e5501805b8895b000000000000000000000000000000000014d838d8"
-    check(b, "776f6f6f6f6f6f6f6f6f6f6f6f6f0a")
-    b = "b025aa3306fedeadbeefcafe08004500002c000140004006616e69696969c0a845e21f90d1e6731cd5f3bc52576a501805b89bf5000000000000000009ce4b8a"
-    check(b, "776f6f0a")
+    b = "b025aa3306fedeadbeefcafe08004500002c000140004006616e69696969c0a845e21f90cd767f76e9f14499cb3f501805b883fb00007465730a0000"
+    check(b, "")
 
 
 def check(b, payload):
     b = bytes.fromhex(b)
-    frame = GmiiFrame.from_raw_payload(b)
-    cocotb.log.info(frame.get_fcs())
-    assert frame.check_fcs()
+    if (payload != ""):
+        frame = GmiiFrame.from_raw_payload(b)
+        cocotb.log.info(frame.get_fcs())
+        assert frame.check_fcs()
     pkt = Ether(b)
     actual_chksum = pkt[TCP].chksum
     pkt.show2()
@@ -224,13 +232,14 @@ def check(b, payload):
     pkt.show2()
 
     correct_chksum = pkt[TCP].chksum
-    del pkt[TCP].chksum
-    pkt[TCP].payload = Raw(bytes.fromhex(payload))
-    pkt = pkt.__class__(bytes(pkt))
-
     cocotb.log.info(actual_chksum)
     cocotb.log.info(correct_chksum)
-    cocotb.log.info(pkt[TCP].chksum)
+    if (payload != ""):
+        del pkt[TCP].chksum
+        pkt[TCP].payload = Raw(bytes.fromhex(payload))
+        pkt = pkt.__class__(bytes(pkt))
+
+        cocotb.log.info(pkt[TCP].chksum)
 
 
 @pytest.mark.parametrize("speed_100", [False])

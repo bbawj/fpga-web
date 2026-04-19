@@ -96,7 +96,7 @@ module tcp_sm (
         end
         tcp::LASTACK: begin
           if ((i_flags & tcp::ACK) != '0) begin
-            next_state <= tcp::CLOSED;
+            next_state <= tcp::LISTEN;
             reject_payload <= 1'b1;
           end
         end

@@ -2,7 +2,7 @@
 `include "utils.svh"
 
 module tcp_encode #(
-    parameter logic [15:0] MY_TCP_PORT = 'd8080
+    parameter logic [15:0] MY_TCP_PORT = 16'd8080
 ) (
     input en,
     input clk,
@@ -169,7 +169,7 @@ module tcp_encode #(
 
   always @(posedge clk) begin
     case (state)
-      SRC_1: checksum <= en ? checksum + {3'b0, initial_checksum} : {3'b0, MY_TCP_PORT};
+      SRC_1: checksum <= en ? (checksum + {3'b0, initial_checksum}) : {3'b0, MY_TCP_PORT};
       DEST_2, SEQ_2, SEQ_4, ACK_2, ACK_4, FLAGS: checksum <= checksum + {3'b0, working};
       DEST_1: checksum <= checksum + {3'b0, ip_da[15:0]};
       SEQ_1: checksum <= checksum + {3'b0, ip_da[31:16]};

@@ -114,17 +114,17 @@ module tcp_decode #(
       working_checksum <= ones_comp(working_checksum, working[15:0]);
       if (state == PAYLOAD) payload_checksum <= ones_comp(payload_checksum, working[15:0]);
       // odd-sized payload, pad with zeroes for checksum calc
-      if (state != PAYLOAD && prev_state == PAYLOAD)
-        payload_checksum <= ones_comp(payload_checksum, {working[7:0], 8'b0});
+      if (state == DONE && prev_state == PAYLOAD)
+        payload_checksum <= ones_comp(payload_checksum, {working[15:8], 8'b0});
     end
   end
 
   always @(posedge clk) begin
+    payload_valid <= '0;
     case (state)
       IDLE: begin
         done <= '0;
-        err <= '0;
-        payload_valid <= '0;
+        err  <= '0;
         if (valid) begin
           logic [17:0] sum;
           payload_size <= ip_payload_size - (4'd4 * ip_ihl);
@@ -140,6 +140,9 @@ module tcp_decode #(
         //urg <= working[15:0];
         payload <= din;
         payload_valid <= 1'b1;
+        if (!valid) begin
+          payload_valid <= 1'b0;
+        end
         // TODO: check overshoot MSS
         if (counter == MSS + 'd20) begin
         end
