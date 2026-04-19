@@ -59,7 +59,7 @@ module mac_tx #(
   reg [31:0] tcp_outgoing_wr_data = 0;
   reg [7:0] tcp_outgoing_rd_data;
   ebr #(
-      .SIZE(tcp::MSS),
+      .SIZE(tcp::MSS / 32),
       .RD_WIDTH(8),
       .WR_WIDTH(32)
   ) tcp_outgoing_buffer (

@@ -94,7 +94,7 @@ module tcp_arbiter #(
 
   // TODO: control for correct Tket.peer_addrCB when there is more than 1
   ebr #(
-      .SIZE(tcp::MSS),
+      .SIZE(tcp::MSS / 32),
       .RD_WIDTH(32)
   ) tcp_incoming_buffer (
       .wr_clk(rxc),
