@@ -1,0 +1,12 @@
+cocotb @ git+https://github.com/cocotb/cocotb@41cacf6d79540923c9312805730b74a2eb2295db
+cocotb-bus==0.3.0
+cocotbext-axi==0.1.26
+cocotbext-eth @ https://github.com/alexforencich/cocotbext-eth/archive/master.zip
+cocotbext-uart==0.1.4
+find-libpython==0.5.0
+iniconfig==2.3.0
+packaging==26.0
+pluggy==1.6.0
+pygments==2.19.2
+pytest==9.0.2
+scapy==2.7.0
