@@ -25,7 +25,7 @@ SOURCES = $(SOURCEDIR)/areset.sv \
 	$(SOURCEDIR)/mac_decode.sv \
 	$(SOURCEDIR)/mac_encode.sv \
 	$(SOURCEDIR)/mdio.sv \
-	$(SOURCEDIR)/mem.sv \
+	$(SOURCEDIR)/sdram_ctrl.sv \
 	$(SOURCEDIR)/oddr.sv \
 	$(SOURCEDIR)/pulse_stretcher.sv \
 	$(SOURCEDIR)/rgmii_rcv.sv \
@@ -55,7 +55,7 @@ sdram: synth
 ebr: MODULE="rtl/top_ebr_debug.sv"
 ebr: TOP=top_ebr_debug
 ebr: SOURCES = $(SOURCES) tb/ebr/test_ebr_debug.sv
-ebr: synth route flash
+ebr: synth route program
 
 diag: SHOW_CMD=; select -list; select top/mac_instance.tcb_sm; select -add top/mac_instance.tx.tcp_enc*; show
 
@@ -69,13 +69,16 @@ synth: $(MODULE).sv $(SOURCES)
 route: synth
 	$(PNR) --25k --package CABGA256 --json top.json \
 			--lpf pinout.lpf --textcfg top.config --freq 125 --report timing --detailed-timing-report
-	$(PACK) --svf top.svf top.config top.bit
+	$(PACK) --compress --svf top.svf top.config top.bit
 
-flash: top.svf
+program: top.svf
 	$(LOADER) -f colorlight.cfg -c "svf -quiet -progress top.svf; exit"
 
+flash: top.bit
+	openFPGALoader -c digilent_hs2 -f --unprotect-flash top.bit
+
 .PHONY: all
-all: synth route flash
+all: synth route program
 	@echo "Do all"
 
 .PHONY: clean

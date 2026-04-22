@@ -1,4 +1,4 @@
-`default_nettype	none
+`default_nettype none
 /**
 * Dual port SDRAM interface to a single port memory. Prioritizes writes.
 *
@@ -8,34 +8,42 @@
 * Granted signals are pulsed for 1 cycle. Users should check this pulse and 
 * change state if needed (e.g. de-assert rd_req).
 */
-module mem (
-  input clk,
-  input rst,
+module sdram_ctrl (
+    input clk,
+    input rst,
 
-  input wr_req, 
-  // 18:8 is the row address, 7:0 is column address
-  input [18:0] wr_ad,
-  input [31:0] wr_data,
-  output reg wr_granted,
+    input wr_req,
+    // 18:8 is the row address, 7:0 is column address
+    input [18:0] wr_ad,
+    input [31:0] wr_data,
+    output reg wr_granted,
 
-  input rd_req, 
-  input [18:0] rd_ad,
-  output reg rd_valid,
-  output reg [31:0] rd_data,
-  output reg rd_granted,
+    input rd_req,
+    input [18:0] rd_ad,
+    output reg rd_valid,
+    output reg [31:0] rd_data,
+    output reg rd_granted,
 
-  output reg [1:0] sdram_ba,
-  output reg sdram_we_n,
-  output reg sdram_cas_n,
-  output reg sdram_ras_n,
-  output wire sdram_clk,
-  output reg [31:0] sdram_dq,
-  output reg [10:0] sdram_addr
-  );
+    output reg [1:0] sdram_ba,
+    output reg sdram_we_n,
+    output reg sdram_cas_n,
+    output reg sdram_ras_n,
+    output wire sdram_clk,
+    output reg [31:0] sdram_dq,
+    output reg [10:0] sdram_addr
+);
 
   assign sdram_clk = clk;
 
-  typedef enum {IDLE, PRECHARGE, AUTOREFRESH, ACTIVATE, MRS, READ, WRITE} SRAM_STATE;
+  typedef enum {
+    IDLE,
+    PRECHARGE,
+    AUTOREFRESH,
+    ACTIVATE,
+    MRS,
+    READ,
+    WRITE
+  } SRAM_STATE;
   SRAM_STATE state = IDLE;
   SRAM_STATE state_before_idle = IDLE;
   reg normal = 1'b0;
@@ -59,7 +67,7 @@ module mem (
     if (rst) begin
       wr_granted <= '0;
       rd_granted <= '0;
-      rd_valid <= '0;
+      rd_valid   <= '0;
     end else begin
       wr_granted <= '0;
       rd_granted <= '0;
@@ -68,14 +76,12 @@ module mem (
           if (idle_cycles > '0) begin
             idle_cycles <= idle_cycles - 'd1;
             state <= IDLE;
-          end
-          else if (normal == '0 && refresh_pending == 'd1) state <= PRECHARGE;
+          end else if (normal == '0 && refresh_pending == 'd1) state <= PRECHARGE;
           else if (normal == '0 && refresh_pending == '0) state <= MRS;
           else if (normal == 'd1) begin
             if (refresh_pending == 'd1) begin
               state <= AUTOREFRESH;
-            end
-            else if (wr_req == 'b1 || rd_req == 'b1) begin
+            end else if (wr_req == 'b1 || rd_req == 'b1) begin
               state <= ACTIVATE;
               op <= wr_req;
               ra <= wr_req ? wr_ad[18:8] : rd_ad[18:8];
@@ -83,7 +89,7 @@ module mem (
               wr_granted <= wr_req;
               rd_granted <= ~wr_req;
               rd_valid <= '0;
-            end  
+            end
           end
         end
         PRECHARGE: begin
@@ -101,8 +107,7 @@ module mem (
             op <= wr_req;
             ra <= wr_req ? wr_ad[18:8] : rd_ad[18:8];
             ca <= wr_req ? wr_ad[7:0] : rd_ad[7:0];
-          end
-          else state <= IDLE;
+          end else state <= IDLE;
         end
         AUTOREFRESH: begin
           sdram_ras_n <= 1'b0;
@@ -159,8 +164,8 @@ module mem (
         READ: begin
           sdram_ras_n <= 1'b1;
           sdram_cas_n <= 1'b0;
-          sdram_we_n <= 1'b1;
-          sdram_addr <= ca;
+          sdram_we_n  <= 1'b1;
+          sdram_addr  <= ca;
           // wait for CAS latency which we programmed to 2 in MRS
           if (cycle_counter == 'd2) begin
             cycle_counter <= '0;
@@ -185,34 +190,31 @@ module mem (
   end
 
 `ifdef FORMAL
-logic f_past_valid;
-initial f_past_valid = 0;
-SRAM_STATE prev_state = IDLE;
-always @(posedge clk) begin
-  f_past_valid <= 1'b1;
-  prev_state <= state;
+  logic f_past_valid;
+  initial f_past_valid = 0;
+  SRAM_STATE prev_state = IDLE;
+  always @(posedge clk) begin
+    f_past_valid <= 1'b1;
+    prev_state   <= state;
 
-end
-
-always @* begin
-  assume(!rst);
-  if (f_past_valid) begin
-    // check that we ACTIVATE before READ
-    // READ stays for 2 cycles
-    if (state == READ)
-      assert ((prev_state == READ && cycle_counter <= 'd2) || prev_state == ACTIVATE);
-    // check that we ACTIVATE before WRITE
-    if (state == WRITE)
-      assert (prev_state == ACTIVATE);
-    if (state == AUTOREFRESH)
-      assert (prev_state == IDLE || prev_state == PRECHARGE);
-    if (state == MRS)
-      assert (prev_state == IDLE);
-    // bank idle only from precharge
-    if (state == IDLE)
-      assert (prev_state == IDLE || prev_state == PRECHARGE || prev_state == MRS || prev_state == AUTOREFRESH);
   end
-end
+
+  always @* begin
+    assume (!rst);
+    if (f_past_valid) begin
+      // check that we ACTIVATE before READ
+      // READ stays for 2 cycles
+      if (state == READ)
+        assert ((prev_state == READ && cycle_counter <= 'd2) || prev_state == ACTIVATE);
+      // check that we ACTIVATE before WRITE
+      if (state == WRITE) assert (prev_state == ACTIVATE);
+      if (state == AUTOREFRESH) assert (prev_state == IDLE || prev_state == PRECHARGE);
+      if (state == MRS) assert (prev_state == IDLE);
+      // bank idle only from precharge
+      if (state == IDLE)
+        assert (prev_state == IDLE || prev_state == PRECHARGE || prev_state == MRS || prev_state == AUTOREFRESH);
+    end
+  end
 `endif
 
 endmodule

@@ -29,7 +29,7 @@ module top_sdram_debug(
   reg sdram_rd_req = '0;
   wire sdram_rd_valid, sdram_rd_granted;
 
-  mem m(
+  sdram_ctrl m(
     .clk(clk_25mhz),
     .rst(rst),
 
