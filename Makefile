@@ -28,6 +28,7 @@ SOURCES = $(SOURCEDIR)/areset.sv \
 	$(SOURCEDIR)/sdram_ctrl.sv \
 	$(SOURCEDIR)/oddr.sv \
 	$(SOURCEDIR)/pulse_stretcher.sv \
+	$(SOURCEDIR)/pulse_gen.sv \
 	$(SOURCEDIR)/rgmii_rcv.sv \
 	$(SOURCEDIR)/rgmii_tx.sv \
 	$(SOURCEDIR)/synchronizer.sv \
@@ -38,24 +39,29 @@ SOURCES = $(SOURCEDIR)/areset.sv \
 	$(SOURCEDIR)/udp_decode.sv \
 	$(SOURCEDIR)/lfsr_rng.sv \
 	$(SOURCEDIR)/ebr.sv \
+	$(SOURCEDIR)/spi_master.sv \
 	$(SOURCEDIR)/tcp_sm.sv \
 	$(SOURCEDIR)/tcp_arbiter.sv \
 	$(SOURCEDIR)/tcp_encode.sv \
 	tb/ebr/test_ebr_debug.sv \
+	$(SOURCEDIR)/top_spi_debug.sv \
 	$(SOURCEDIR)/var_int_decoder.sv
 
-MODULE=top
-TOP=$(MODULE)
+TOP=top
+
 .PHONY: sdram
-sdram: MODULE="rtl/top_sdram_debug.sv"
 sdram: TOP=top_sdram_debug
 sdram: synth
 
 .PHONY: ebr
-ebr: MODULE="rtl/top_ebr_debug.sv"
 ebr: TOP=top_ebr_debug
-ebr: SOURCES = $(SOURCES) tb/ebr/test_ebr_debug.sv
+ebr: SOURCES := $(SOURCES) tb/ebr/test_ebr_debug.sv
 ebr: synth route program
+
+.PHONY: spi
+spi: TOP=top_spi_debug
+spi: SOURCES += rtl/top_spi_debug.sv
+spi: synth route flash
 
 diag: SHOW_CMD=; select -list; select top/mac_instance.tcb_sm; select -add top/mac_instance.tx.tcp_enc*; show
 
@@ -63,7 +69,7 @@ diag: SHOW_CMD=; select -list; select top/mac_instance.tcb_sm; select -add top/m
 diag:
 	xdot ~/.yosys_show.dot
 
-synth: $(MODULE).sv $(SOURCES)
+synth: $(SOURCES)
 	$(YOSYS) -D SYNTHESIS=1 -DDEBUG=1 -p "synth_ecp5 -top $(TOP) -json top.json$(SHOW_CMD)" $^
 
 route: synth

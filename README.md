@@ -1,4 +1,4 @@
-# TCP Offload for Microblogging from an FPGA
+# FPGA Webserver
 
 Goals: Use a cheap FPGA to support TCP, and then, use it to serve a blog.
 

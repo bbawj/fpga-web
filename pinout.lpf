@@ -1,6 +1,12 @@
 # 25MHz clock from PHY (U13) - Pin P6
 LOCATE COMP "clk_25mhz" SITE "P6";
 
+# Flash
+LOCATE COMP "flash_cs" SITE "N8";
+LOCATE COMP "flash_miso" SITE "T7";
+LOCATE COMP "flash_mosi" SITE "T8";
+#LOCATE COMP "flash_sck" SITE ""; #driven through USRMCLK
+
 # LED (DATA_LED-) - Pin T6, active low, open drain
 LOCATE COMP "led" SITE "T6";
 IOBUF PORT "led" IO_TYPE=LVCMOS33 OPENDRAIN=ON;
