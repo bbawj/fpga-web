@@ -169,22 +169,21 @@ module tcp_encode #(
 
   always @(posedge clk) begin
     case (state)
-      SRC_1: checksum <= en ? (checksum + {3'b0, initial_checksum}) : {3'b0, MY_TCP_PORT};
+      SRC_1: checksum <= en ? (checksum + {3'b0, initial_checksum}) : {3'b0, MY_TCP_PORT + 16'd6};
       DEST_2, SEQ_2, SEQ_4, ACK_2, ACK_4, FLAGS: checksum <= checksum + {3'b0, working};
       DEST_1: checksum <= checksum + {3'b0, ip_da[15:0]};
       SEQ_1: checksum <= checksum + {3'b0, ip_da[31:16]};
       SEQ_3: checksum <= checksum + {3'b0, ip_sa[31:16]};
       ACK_1: checksum <= checksum + {3'b0, ip_sa[15:0]};
       ACK_3: checksum <= checksum + {3'b0, tcp_len};
-      OFS: checksum <= checksum + {19'd6};
-      WNDW_1: checksum <= checksum + {3'b0, window};
-      WNDW_2: begin
+      OFS: checksum <= checksum + {3'b0, window};
+      WNDW_1: begin
         logic [18:0] sum;
         sum = {3'b0, checksum[15:0]} + {16'b0, checksum[18:16]};
         sum = {3'b0, sum[15:0]} + {16'b0, sum[18:16]};
         checksum <= {3'b0, sum[15:0]};
       end
-      CHECKSUM_1, CHECKSUM_2, URG_1, URG_2: begin
+      WNDW_2, CHECKSUM_1, CHECKSUM_2, URG_1, URG_2: begin
       end
     endcase
   end
