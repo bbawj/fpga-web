@@ -43,8 +43,12 @@ SOURCES = $(SOURCEDIR)/areset.sv \
 	$(SOURCEDIR)/tcp_sm.sv \
 	$(SOURCEDIR)/tcp_arbiter.sv \
 	$(SOURCEDIR)/tcp_encode.sv \
+	$(SOURCEDIR)/http_decode.sv \
+	$(SOURCEDIR)/http_entry.sv \
+	$(SOURCEDIR)/ram_sp.sv \
 	tb/ebr/test_ebr_debug.sv \
 	$(SOURCEDIR)/top_spi_debug.sv \
+	top.sv \
 	$(SOURCEDIR)/var_int_decoder.sv
 
 TOP=top

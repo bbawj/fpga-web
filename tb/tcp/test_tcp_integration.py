@@ -122,7 +122,10 @@ class TCPIntegrated(TCPSimSock):
             rx.show2()
             assert rx[IP].chksum == actual_ip_chksum
             assert rx[TCP].chksum == actual_tcp_chksum
-            # FIXME: will fail if payload is less than 24 bytes as the
+            if Padding in rx:
+                del rx[Padding]
+            if Padding in self.last:
+                del self.last[Padding]
             assert not self.last[TCP].payload or self.last[TCP].payload == rx[TCP].payload, "Payload not echoed properly"
             self.from_hdl.put(rx, block=False)
 
@@ -134,22 +137,21 @@ class PacketGen:
 
     def __init__(self, ip, port):
         self.payload = Raw(RandString(size=20))
-        self.sent = False
+        self.sent = 0
         self.from_bench = Queue()
 
     def recv(self, n=None):
         cocotb.log.info("Packet gen triggered")
-        self.sent = True
         payload = self.from_bench.get_nowait()
-        if (len(payload) < 6):
-            payload = payload / Padding(load="\x00" * (6-len(payload)))
         return payload
 
     def empty(self):
-        return self.sent or self.from_bench.empty()
+        return self.from_bench.empty()
 
     def send(self, pkt):
         pass
+        # self.sent += 1
+        # self.from_bench.put(pkt)
 
 
 @cocotb.test()
@@ -166,15 +168,15 @@ async def tcp_integration_full(dut):
     cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
         TCPIntegrated(tb), client_ref, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
     await Timer(5000, "ns")
-    gen.from_bench.put_nowait(Raw(RandString(size=21)))
+    gen.from_bench.put(Raw(RandString(size=21)))
     await Timer(5000, "ns")
-    gen.from_bench.put_nowait(Raw(RandString(size=20)))
+    gen.from_bench.put(Raw(RandString(size=20)))
     await Timer(5000, "ns")
-    gen.from_bench.put_nowait(Raw(RandString(size=3)))
+    gen.from_bench.put(Raw(RandString(size=3)))
     await Timer(5000, "ns")
-    gen.from_bench.put_nowait(Raw(RandString(size=4)))
+    gen.from_bench.put(Raw(RandString(size=4)))
     await Timer(5000, "ns")
-    gen.from_bench.put_nowait(Raw(RandString(size=120)))
+    gen.from_bench.put(Raw(RandString(size=120)))
     await Timer(5000, "ns")
     client_ref[0].stop(wait=False)
     await Timer(5000, "ns")

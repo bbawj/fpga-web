@@ -17,7 +17,7 @@ module ebr #(
     output reg rd_valid,
     output reg [RD_WIDTH-1:0] rd_data
 );
-  reg [35:0] mem[SIZE:0];
+  reg [31:0] mem[SIZE];
   localparam logic SAME_WIDTH = RD_WIDTH == WR_WIDTH;
   localparam logic W_DIVS_R = WR_WIDTH > RD_WIDTH && WR_WIDTH % RD_WIDTH == 0;
 

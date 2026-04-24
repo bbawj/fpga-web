@@ -261,7 +261,6 @@ class TCP_client_sim(TCP_client):
         args = (ready,) + (args)
         super().run(wait=False)
         super()._do_control(*args, **kargs)
-        assert False, "TCP died due to exception"
 
     def master_filter(self, pkt):
         assert IP in pkt

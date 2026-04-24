@@ -280,8 +280,8 @@ module mac (
   reg uart_valid = '0;
   reg [7:0] uart_data = '0;
   always @(posedge clk) begin
-    uart_valid <= rx_dv_delayed;
-    uart_data  <= rxd_delayed;
+    uart_valid <= mac_txen;
+    uart_data  <= mac_txd;
   end
   uart _uart (
       .clk(clk),

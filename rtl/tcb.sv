@@ -215,6 +215,6 @@ module tcb #(
       default: begin
       end
     endcase
-
   end
+  // TODO: Re-transmission timer that moves packets from to_ack to to_send
 endmodule

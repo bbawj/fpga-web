@@ -22,14 +22,18 @@ module top(
 reg pll_locked;
 wire sysclk;
 wire sysclk90;
+wire spiclk, spi_en;
 `ifdef SPEED_100M
 // Phase range from 0 to 46, 0 phase is 23. Each division is 1/24 degrees
 clk_gen #(.SYSCLK_DIV(24), .TXC_DIV(24), .TXC_PHASE(29), .MDC_DIV(240), .FB_DIV(1))
 `else
 // Phase range from 0 to 8, 0 phase is 4. Each division is 1/5 degrees
-clk_gen #(.SYSCLK_DIV(5), .TXC_DIV(5), .TXC_PHASE(5), .MDC_DIV(250), .FB_DIV(5))
+clk_gen #(.SYSCLK_DIV(5), .TXC_DIV(5), .TXC_PHASE(5), .SPI_DIV(5), .SPI_PHASE(5), .FB_DIV(5))
 `endif
-  _clk_gen (.clk_in(clk_25mhz), .sysclk(sysclk), .txc(sysclk90), .mdc(mdc), .clk_locked(pll_locked));
+  _clk_gen (.clk_in(clk_25mhz), .spi_en(1'b1), .sysclk(sysclk),
+    .txc(sysclk90), .spi(spiclk), .clk_locked(pll_locked));
+
+USRMCLK u1(.USRMCLKI(spiclk), .USRMCLKTS(~pll_locked));
 
 wire rst;
 assign led = ~rst;
@@ -59,6 +63,7 @@ mac mac_instance(
   .clk90(sysclk90),
   .rst(rst),
   .led(),
+  .tcp_echo_en(1'b1),
   .uart_tx(uart_tx),
 
   .phy_txc(phy0_txc),
