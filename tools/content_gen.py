@@ -9,6 +9,20 @@ def _align_32(size):
         return size + 4 - (size % 4)
 
 
+def calc_tcp_checksum(b: bytearray):
+    if len(b) % 2 != 0:
+        b.apppend(0x00)
+    print(b)
+    temp = 0
+    for i in range(0, len(b), 2):
+        temp += int.from_bytes(b[i:i+1])
+        if temp > 0xFFFF:
+            temp &= 0xFFFF
+            temp += 1
+
+    return temp ^ 0xFFFF
+
+
 def read_files(start_addr=0x00100000, num_entries=512):
     root = Path(__file__).parent
     count = 0
@@ -20,18 +34,19 @@ def read_files(start_addr=0x00100000, num_entries=512):
                 assert count < num_entries
 
                 data = p.read_text()
-                length_data = f"{len(data):018x}\n"
+                fa.write(f"{next_start_addr:09x}\n")
 
-                fa.write(f"{next_start_addr:018x}\n")
-                fl.write(length_data)
+                length_data = f"{len(data):04x}\n"
+                checksum = calc_tcp_checksum(bytearray(data, "ascii"))
+                fl.write(f"0{checksum:04x}{length_data}")
 
                 count += 1
                 next_start_addr += _align_32(len(data))
 
             # pad the rest with zeroes
             for i in range(count, num_entries):
-                fa.write(f"{0:018x}\n")
-                fl.write(f"{0:018x}\n")
+                fa.write(f"{0:09x}\n")
+                fl.write(f"{0:09x}\n")
 
 
 if __name__ == "__main__":

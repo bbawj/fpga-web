@@ -9,11 +9,14 @@ module spi_master (
     input rst,
     input i_en,
     input [23:0] i_size,
+    input [7:0] i_inst,
+    input i_addr_en,
     input [23:0] i_addr,
 
     output reg o_data_valid,
     output reg [7:0] o_data
 );
+  localparam SYNC_STAGES = 2;
 
   reg [23:0] payload_counter;
   reg [ 2:0] state_counter;
@@ -47,7 +50,7 @@ module spi_master (
         case (state)
           IDLE: shift <= 0;
           // TODO: based on OP
-          INST: shift <= 8'h9f;
+          INST: shift <= i_inst;
           ADDR1: shift <= i_addr[23:16];
           ADDR2: shift <= i_addr[15:8];
           ADDR3: shift <= i_addr[7:0];
@@ -66,7 +69,9 @@ module spi_master (
     sclk_miso <= spi_miso;
   end
 
-  synchronizer sync1 (
+  synchronizer #(
+      .SYNC_WIDTH(SYNC_STAGES)
+  ) sync1 (
       .clk(clk),
       .sig(sclk_miso),
       .q  (miso_sync)
@@ -110,7 +115,7 @@ module spi_master (
         next_cs = 0;
         next_clken = 1;
         if (state_counter == 'd7) begin
-          next_state = ADDR1;
+          next_state = i_addr_en ? ADDR1 : WAIT_SYNC;
           next_reload_en = 1;
         end
       end
@@ -140,7 +145,8 @@ module spi_master (
       WAIT_SYNC: begin
         next_cs = 0;
         next_clken = 1;
-        if (state_counter == 'd3) begin
+        // Add 1 cycle as a workaround for MISO turnaround time
+        if (state_counter == SYNC_STAGES + 'd1) begin
           next_state = DATA;
           next_counter_reset = 1;
         end

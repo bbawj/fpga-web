@@ -8,8 +8,10 @@ module test_spi (
 
     input rst,
     input i_en,
+    input [7:0] i_inst,
     input [23:0] i_size,
     input [23:0] i_addr,
+    input i_addr_en,
     output reg [7:0] o_data,
     output reg o_valid
 );
@@ -23,8 +25,10 @@ module test_spi (
 
       .rst(rst),
       .i_en(i_en),
+      .i_inst(i_inst),
       .i_size(i_size),
       .i_addr(i_addr),
+      .i_addr_en(i_addr_en),
 
       .o_data_valid(o_valid),
       .o_data(o_data)

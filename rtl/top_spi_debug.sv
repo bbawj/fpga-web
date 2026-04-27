@@ -71,7 +71,9 @@ module top_spi_debug (
       .rst(~pll_locked),
       .i_en(i_en),
       .i_size(3),
+      .i_inst(8'h9f),
       .i_addr('0),
+      .i_addr_en('0),
       .o_data_valid(uart_valid),
       .o_data(uart_data)
   );

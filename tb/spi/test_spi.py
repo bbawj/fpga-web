@@ -71,7 +71,8 @@ class WinbondRAM(SpiSlaveBase):
                 "sclk should be low at chip select edge")
 
         self.values["inst"] = int(await self._shift(8))
-        self.values["addr"] = int(await self._shift(24))
+        if (self.values["inst"] != 0x9f):
+            self.values["addr"] = int(await self._shift(24))
         # FIXME: the behavior does not match the data sheet. MISO only changes
         # 1 cycle after the last MOSI bit. workaround here:
         await FallingEdge(self._sclk)
@@ -93,8 +94,10 @@ async def spi(dut):
     spi_slave = WinbondRAM(spi_bus)
     await RisingEdge(dut.clk)
     dut.i_en.value = 1
-    dut.i_addr.value = 1
-    dut.i_size.value = 3
+    dut.i_inst.value = 0x9f
+    dut.i_addr.value = 0
+    dut.i_addr_en.value = 0
+    dut.i_size.value = 1
     await RisingEdge(dut.clk)
     dut.i_en.value = 0
     await RisingEdge(dut.clk)
@@ -106,12 +109,9 @@ async def spi(dut):
         if isinstance(vals, RisingEdge):
             assert int(dut.o_data.value) == 0xDE
         else:
-            assert vals["inst"] == 0x9f
-            assert vals["addr"] == dut.i_addr.value
+            assert trans.result()["inst"] == 0x9f
+            assert trans.result()["addr"] == dut.i_addr.value
             break
-        # await with_timeout(RisingEdge(dut.o_valid), 1000, "ns")
-
-    assert False
 
 
 def test_simple_dff_runner():
