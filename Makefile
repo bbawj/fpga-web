@@ -46,26 +46,28 @@ SOURCES = $(SOURCEDIR)/areset.sv \
 	$(SOURCEDIR)/http_decode.sv \
 	$(SOURCEDIR)/http_entry.sv \
 	$(SOURCEDIR)/ram_sp.sv \
-	tb/ebr/test_ebr_debug.sv \
 	$(SOURCEDIR)/top_spi_debug.sv \
 	top.sv \
-	$(SOURCEDIR)/var_int_decoder.sv
+	$(SOURCEDIR)/var_int_decoder.sv \
+	$(EXTRA_SOURCES)
 
 TOP=top
 
 .PHONY: sdram
-sdram: TOP=top_sdram_debug
-sdram: synth
+sdram:
+	$(MAKE) TOP=top_sdram_debug EXTRA_SOURCES="$(SOURCEDIR)/top_sdram_debug.sv" synth route program
 
 .PHONY: ebr
-ebr: TOP=top_ebr_debug
-ebr: SOURCES := $(SOURCES) tb/ebr/test_ebr_debug.sv
-ebr: synth route program
+ebr:
+	$(MAKE) TOP=top_ebr_debug EXTRA_SOURCES="$(SOURCEDIR)/top_ebr_debug.sv tb/ebr/test_ebr_debug.sv" synth route program
 
 .PHONY: spi
-spi: TOP=top_spi_debug
-spi: SOURCES += rtl/top_spi_debug.sv
-spi: synth route flash
+spi:
+	$(MAKE) TOP=top_spi_debug EXTRA_SOURCES="$(SOURCEDIR)/top_spi_debug.sv" synth route flash
+
+.PHONY: spi_sdram
+spi_sdram:
+	$(MAKE) TOP=top_flash_sdram_debug EXTRA_SOURCES="$(SOURCEDIR)/top_flash_sdram_debug.sv" synth route flash
 
 diag: SHOW_CMD=; select -list; select top/mac_instance.tcb_sm; select -add top/mac_instance.tx.tcp_enc*; show
 
@@ -78,7 +80,7 @@ synth: $(SOURCES)
 
 route: synth
 	$(PNR) --25k --package CABGA256 --json top.json \
-			--lpf pinout.lpf --textcfg top.config --freq 125 --report timing --detailed-timing-report
+			--lpf pinout.lpf --textcfg top.config --freq 125 --detailed-timing-report
 	$(PACK) --compress --svf top.svf top.config top.bit
 
 program: top.svf

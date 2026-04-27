@@ -1,7 +1,8 @@
 `default_nettype none
 module uart #(
     parameter DATA_WIDTH = 8,
-    parameter BAUD_RATE  = 38400
+    parameter FREQ = 125_000_000,
+    parameter BAUD_RATE = 38400
 ) (
     input wire clk,
     input wire rst,
@@ -44,11 +45,8 @@ module uart #(
   } uart_state_t;
   uart_state_t uart_state = IDLE, prev_uart_state;
 
-`ifdef SPEED_100M
-  localparam CLOCKS_PER_BAUD = 25_000_000 / BAUD_RATE;
-`else
-  localparam CLOCKS_PER_BAUD = 125_000_000 / BAUD_RATE;
-`endif
+  localparam CLOCKS_PER_BAUD = FREQ / BAUD_RATE;
+
   reg [31:0] counter = CLOCKS_PER_BAUD;
   always @(posedge clk) begin
     if (rst || counter == 0) counter <= CLOCKS_PER_BAUD - 1;
@@ -90,6 +88,7 @@ module uart #(
   end
 
   always @(posedge clk) begin
+    fifo_dout_q <= fifo_dout;
     if (rst) begin
       uart_state   <= IDLE;
       byte_counter <= 0;
@@ -101,7 +100,6 @@ module uart #(
           end
         end
         START: begin
-          fifo_dout_q <= fifo_dout;
           if (counter == 0) begin
             uart_state <= DATA0;
           end

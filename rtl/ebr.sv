@@ -20,10 +20,10 @@ module ebr #(
   reg [31:0] mem[SIZE];
   localparam logic SAME_WIDTH = RD_WIDTH == WR_WIDTH;
   localparam logic W_DIVS_R = WR_WIDTH > RD_WIDTH && WR_WIDTH % RD_WIDTH == 0;
+  localparam logic R_DIVS_W = RD_WIDTH > WR_WIDTH && RD_WIDTH % WR_WIDTH == 0;
 
-  initial assert (SAME_WIDTH || W_DIVS_R);
+  initial assert (SAME_WIDTH || W_DIVS_R || R_DIVS_W);
   initial assert (RD_WIDTH <= 32);
-  initial assert (RD_WIDTH <= WR_WIDTH);
   initial assert (WR_WIDTH <= 32);
 
 

@@ -44,7 +44,7 @@ class TB:
 @cocotb.test()
 async def http_decode(dut):
     tb = TB(dut)
-    payload = bytes("GET 1", "ascii")
+    payload = bytes("GET 0\r\n", "ascii")
     await tb.reset()
     for i in range(len(payload)):
         dut.i_payload_valid.value = 1
@@ -66,21 +66,22 @@ async def http_decode(dut):
 
 
 @pytest.mark.parametrize("addr_file,size_file", [("", ""), ("addrs.mem", "lengths.mem")])
-def test_http(addr_file, size_file):
+def test_http_decode(addr_file, size_file):
     sim = os.getenv("SIM", "verilator")
 
     source_folder = "../../rtl"
     sources = [
         f"{source_folder}/http_decode.sv",
-        "./test_http.sv",
+        "./test_http_decode.sv",
     ]
 
     addr_file_abs = Path(addr_file).resolve()
     size_file_abs = Path(size_file).resolve()
+    assert addr_file_abs.exists() and size_file_abs.exists()
     runner = get_runner(sim)
     runner.build(
         sources=sources,
-        hdl_toplevel="test_http",
+        hdl_toplevel="test_http_decode",
         waves=True,
         verbose=True,
         includes=[f"{source_folder}/"],
@@ -97,4 +98,4 @@ def test_http(addr_file, size_file):
                             "CAM_SIZE_FILE": f'{size_file_abs}'},
                 extra_env={"ADDR_FILE": addr_file,
                            "SIZE_FILE": size_file},
-                hdl_toplevel="test_http", test_module="test_http")
+                hdl_toplevel="test_http_decode", test_module="test_http_decode")

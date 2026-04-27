@@ -9,3 +9,4 @@ obj_dir/
 __pycache__
 *.fst
 *iverilog_dump.v
+timing

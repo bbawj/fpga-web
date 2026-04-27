@@ -3,11 +3,12 @@
 * a bare minimum "GET <TARGET>\r\n" payload. TARGET should only be 1 byte for
 * now.
 *
-* If the TCP engine has validated the request to be OK, pull the payload data
+* Response is asserted 3 cycles after i_payload_valid is de-asserted. Response
+* is asserted for only 1 cycle with no handshaking.
 */
 module http_decode #(
-    parameter string CAM_ADDR_FILE,
-    parameter string CAM_SIZE_FILE
+    parameter CAM_ADDR_FILE,
+    parameter CAM_SIZE_FILE
 ) (
     input clk,
     input rst,
@@ -16,6 +17,7 @@ module http_decode #(
     output reg res_valid,
     output reg res_err,
     output reg [15:0] res_payload_size,
+    output reg [15:0] res_payload_checksum,
     output reg [18:0] res_payload_addr
 );
 
@@ -34,15 +36,15 @@ module http_decode #(
   reg [2:0] method_counter, target_counter;
   always_ff @(posedge clk) begin
     state <= next_state;
-    working <= {working[23:0], i_payload_data};
+    working <= i_payload_valid ? {working[23:0], i_payload_data} : working;
     method_counter <= state != METHOD ? 0 : method_counter + 'd1;
     target_counter <= state != TARGET ? 0 : target_counter + 'd1;
 
     // For now we only support ascii [0-7] and [a-z|A-Z]
-    if (state == MATCH) key <= {1'b0, working[7:0]} - 'd48;
+    if (state == TARGET) key <= {1'b0, working[7:0]} - 'd48;
 
     case (state)
-      METHOD: res_valid <= 1'b0;
+      IDLE: res_valid <= 1'b0;
       WAIT_CAM: begin
         res_valid <= 1'b1;
         res_err   <= res_payload_addr == '0 || res_payload_size == '0;
@@ -68,9 +70,8 @@ module http_decode #(
         else next_state = ABORT;
       end
       TARGET: begin
-        // more than 2 byte in the target, invalid
-        if (target_counter >= 'd2) next_state = ABORT;
-        if (!i_payload_valid) next_state = MATCH;
+        // take only the first byte as target endpoint
+        next_state = MATCH;
       end
       MATCH: begin
         next_state = WAIT_CAM;
@@ -90,6 +91,7 @@ module http_decode #(
       .clk(clk),
       .key(key),
       .content_addr(res_payload_addr),
-      .content_size(res_payload_size)
+      .content_size(res_payload_size),
+      .content_checksum(res_payload_checksum)
   );
 endmodule
