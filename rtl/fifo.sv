@@ -1,7 +1,9 @@
 module fifo #(
     parameter DATA_WIDTH = 8,
     parameter DEPTH = 64,
-    parameter ADDR_WIDTH = $clog2(DEPTH)
+    parameter ADDR_WIDTH = $clog2(DEPTH),
+    // whether to use block RAM, not supported for all data & addr widths
+    parameter EBR = 0
 ) (
     input wire clk,
     input wire rst,
@@ -12,7 +14,7 @@ module fifo #(
     output wire full,
 
     // Read interface  
-    input wire rd_en,
+    input rd_en,
     output reg [DATA_WIDTH-1:0] dout,
     output wire empty,
 
@@ -20,26 +22,50 @@ module fifo #(
     output wire [ADDR_WIDTH:0] count
 );
 
-  reg [DATA_WIDTH-1:0] mem[0:DEPTH-1];
-  // additional bit here allows to differentiate between full and empty
-  reg [ADDR_WIDTH:0] wr_ptr = '0, rd_ptr = '0;
-
   always @(posedge clk) begin
-    if (rst) begin
-      dout   <= '0;
-      wr_ptr <= 0;
-      rd_ptr <= 0;
-    end else begin
-      if (wr_en && !full) begin
-        wr_ptr <= wr_ptr + 1;
-        mem[wr_ptr[ADDR_WIDTH-1:0]] <= din;
-      end
-      if (rd_en && !empty) begin
-        rd_ptr <= rd_ptr + 1;
-        dout <= mem[rd_ptr[ADDR_WIDTH-1:0]];
-      end
+    if (rst) wr_ptr <= '0;
+    else if (wr_en && !full) begin
+      wr_ptr <= wr_ptr + 1;
     end
   end
+
+  always @(posedge clk) begin
+    if (rst) rd_ptr <= '0;
+    else if (rd_en) begin
+      rd_ptr <= rd_ptr + (empty ? 0 : 1);
+    end
+  end
+
+  generate
+    if (EBR == 0) begin
+      reg [DATA_WIDTH-1:0] mem[0:DEPTH-1];
+
+      always @(posedge clk) begin
+        if (wr_en && !full) begin
+          mem[wr_ptr[ADDR_WIDTH-1:0]] <= din;
+        end
+        if (rd_en && !empty) begin
+          dout <= mem[rd_ptr[ADDR_WIDTH-1:0]];
+        end
+      end
+    end else begin
+      ram_wrap #(
+          .DATA_WIDTH(DATA_WIDTH),
+          .ADDR_WIDTH(ADDR_WIDTH)
+      ) mem (
+          .clk(clk),
+          .wr_addr(wr_ptr[ADDR_WIDTH-1:0]),
+          .rd_addr(rd_ptr[ADDR_WIDTH-1:0]),
+          .din(din),
+          .dout(dout),
+          .wr_en(wr_en),
+          .rd_en(rd_en),
+          .rst(rst)
+      );
+    end
+  endgenerate
+  // additional bit here allows to differentiate between full and empty
+  reg [ADDR_WIDTH:0] wr_ptr = '0, rd_ptr = '0;
 
   // Status flags
   assign full  = (wr_ptr - rd_ptr) == DEPTH;
