@@ -27,7 +27,7 @@ module test_spi (
       .i_en(i_en),
       .i_inst(i_inst),
       .i_size(i_size),
-      .i_addr(i_addr),
+      .i_offset(i_addr),
       .i_addr_en(i_addr_en),
 
       .o_data_valid(o_valid),

@@ -35,7 +35,8 @@ module top_spi_debug (
   reg uart_valid;
   reg [7:0] uart_data;
   uart #(
-      .DATA_WIDTH(8)
+      .BUF_USE_BLOCKRAM(1),
+      .DATA_WIDTH(32)
   ) _uart (
       .clk(sysclk),
       .rst(~pll_locked),
@@ -70,10 +71,10 @@ module top_spi_debug (
       .spi_clken(spi_clken),
       .rst(~pll_locked),
       .i_en(i_en),
-      .i_size(3),
-      .i_inst(8'h9f),
-      .i_addr('0),
-      .i_addr_en('0),
+      .i_size(20),
+      .i_inst(8'h03),
+      .i_offset('0),
+      .i_addr_en('d1),
       .o_data_valid(uart_valid),
       .o_data(uart_data)
   );

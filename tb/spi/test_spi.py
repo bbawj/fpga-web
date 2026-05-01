@@ -55,13 +55,23 @@ class WinbondRAM(SpiSlaveBase):
         cs_active_low=True  # optional (assumed True)
     )
 
-    def __init__(self, bus):
+    def __init__(self, bus, mem=None):
         self.values = {"inst": 0, "addr": 0}
+        self.mem = mem
         super().__init__(bus)
 
     async def get_values(self):
         await self.idle.wait()
         return self.values
+
+    async def _byte_2_bit(self, frame_end, b):
+        for i in range(self._config.word_width):
+            self._miso.value = bool(
+                b & (1 << (self._config.word_width - 1 - i)))
+            s = First(await First(FallingEdge(self._sclk), frame_end))
+            t = First(await Timer(1.5, unit="ns"), frame_end)
+            assert frame_end not in (
+                s, t), "SPI ended in the middle of transaction"
 
     async def _transaction(self, frame_start, frame_end) -> None:
         await frame_start
@@ -73,21 +83,23 @@ class WinbondRAM(SpiSlaveBase):
         self.values["inst"] = int(await self._shift(8))
         if (self.values["inst"] != 0x9f):
             self.values["addr"] = int(await self._shift(24))
+            starting_val = self.mem[self.values["addr"]]
         # FIXME: the behavior does not match the data sheet. MISO only changes
         # 1 cycle after the last MOSI bit. workaround here:
         await FallingEdge(self._sclk)
 
-        for i in range(self._config.word_width):
-            self._miso.value = bool(
-                0xDE & (1 << (self._config.word_width - 1 - i)))
-            await FallingEdge(self._sclk)
-            await Timer(1.5, unit="ns")
-
-        await frame_end
+        counter = 0
+        if (self.values["inst"] != 0x9f):
+            while await First(cocotb.start_soon(self._byte_2_bit(frame_end, starting_val+counter)), frame_end) != frame_end:
+                counter += 1
+                pass
+        else:
+            await self._byte_2_bit(frame_end, 0xDE)
+            await frame_end
 
 
 @cocotb.test()
-async def spi(dut):
+async def spi_meta(dut):
     tb = TB(dut)
     await tb.reset()
     spi_bus = SpiBus.from_entity(dut, cs_name="cs")
@@ -111,6 +123,40 @@ async def spi(dut):
         else:
             assert trans.result()["inst"] == 0x9f
             assert trans.result()["addr"] == dut.i_addr.value
+            break
+
+
+@cocotb.test()
+async def spi_read(dut):
+    inst = 0x03
+    addr = 0
+
+    tb = TB(dut)
+    await tb.reset()
+    spi_bus = SpiBus.from_entity(dut, cs_name="cs")
+    mem = {0: 0xDE}
+    spi_slave = WinbondRAM(spi_bus, mem)
+    await RisingEdge(dut.clk)
+    dut.i_en.value = 1
+    dut.i_inst.value = inst
+    dut.i_addr.value = addr
+    dut.i_addr_en.value = 1
+    dut.i_size.value = 10
+    await RisingEdge(dut.clk)
+    dut.i_en.value = 0
+    await RisingEdge(dut.clk)
+    await RisingEdge(dut.clk)
+    trans = cocotb.start_soon(spi_slave.get_values())
+    counter = 0
+    while True:
+        vals = await First(RisingEdge(dut.o_valid), trans.complete)
+        if isinstance(vals, RisingEdge):
+            assert int(dut.o_data.value) == mem[0] + counter
+            counter += 1
+        else:
+            assert trans.result()["inst"] == inst
+            assert trans.result()["addr"] == addr
+            assert counter == 10
             break
 
 

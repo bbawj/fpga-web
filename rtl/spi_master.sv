@@ -11,7 +11,7 @@ module spi_master (
     input [23:0] i_size,
     input [7:0] i_inst,
     input i_addr_en,
-    input [23:0] i_addr,
+    input [23:0] i_offset,
 
     output reg o_data_valid,
     output reg [7:0] o_data
@@ -51,9 +51,9 @@ module spi_master (
           IDLE: shift <= 0;
           // TODO: based on OP
           INST: shift <= i_inst;
-          ADDR1: shift <= i_addr[23:16];
-          ADDR2: shift <= i_addr[15:8];
-          ADDR3: shift <= i_addr[7:0];
+          ADDR1: shift <= i_offset[23:16];
+          ADDR2: shift <= i_offset[15:8];
+          ADDR3: shift <= i_offset[7:0];
           default: shift <= '0;
         endcase
       end else begin
