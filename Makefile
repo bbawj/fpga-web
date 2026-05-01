@@ -46,6 +46,7 @@ SOURCES = $(SOURCEDIR)/areset.sv \
 	$(SOURCEDIR)/http_decode.sv \
 	$(SOURCEDIR)/http_entry.sv \
 	$(SOURCEDIR)/ram_sp.sv \
+	$(SOURCEDIR)/ram_wrap.sv \
 	$(SOURCEDIR)/top_spi_debug.sv \
 	top.sv \
 	$(SOURCEDIR)/var_int_decoder.sv \
@@ -87,7 +88,7 @@ program: top.svf
 	$(LOADER) -f colorlight.cfg -c "svf -quiet -progress top.svf; exit"
 
 flash: top.bit
-	openFPGALoader -c digilent_hs2 -f --unprotect-flash top.bit
+	openFPGALoader -c digilent_hs2 -f --unprotect-flash top.bit --verbose-level 2
 
 .PHONY: all
 all: synth route program

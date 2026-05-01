@@ -4,7 +4,7 @@ arp_decode
 uart
 fifo
 mdio
-mem
+sdram
 
 [options]
 arp_encode: mode prove
@@ -12,7 +12,7 @@ arp_decode: mode prove
 uart: mode prove
 fifo: mode prove
 mdio: mode prove
-mem: mode prove
+sdram: mode prove
 depth 10
 
 multiclock on
@@ -46,11 +46,11 @@ mdio: prep -top mdio
 mdio: flatten
 mdio: tribuf -formal
 
-mem: read -formal -sv mem.sv
-mem: prep -top mem
+sdram: read -formal -sv sdram_ctrl.sv
+sdram: prep -top sdram_ctrl
 
 [files]
-../rtl/mem.sv
+../rtl/sdram_ctrl.sv
 ../rtl/fifo.sv
 ../rtl/mdio.sv
 ../rtl/synchronizer.sv
