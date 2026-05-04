@@ -47,6 +47,7 @@ SOURCES = $(SOURCEDIR)/areset.sv \
 	$(SOURCEDIR)/http_entry.sv \
 	$(SOURCEDIR)/ram_sp.sv \
 	$(SOURCEDIR)/ram_wrap.sv \
+	$(SOURCEDIR)/flash2sdram.sv \
 	$(SOURCEDIR)/top_spi_debug.sv \
 	top.sv \
 	$(SOURCEDIR)/var_int_decoder.sv \

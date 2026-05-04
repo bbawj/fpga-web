@@ -23,7 +23,7 @@ module top_spi_debug (
       .spi_en(spi_clken),
 
       .sysclk(sysclk),
-      .txc(spiclk),
+      .spi(spiclk),
       .clk_locked(pll_locked)
   );
 

@@ -25,6 +25,8 @@ module sdram_ctrl #(
     output reg rd_valid,
     output reg [31:0] rd_data,
     output reg rd_granted,
+    // Boot complete signal. 1: boot done
+    output reg boot_done,
 
     output reg [1:0] sdram_ba,
     output reg sdram_we_n,
@@ -35,11 +37,19 @@ module sdram_ctrl #(
     output reg [10:0] sdram_addr
 );
 
-  localparam int CYCLE_TIME_NS = (1_000_000_000 / FREQ);
+  localparam longint CYCLE_TIME_NS = (1_000_000_000 / FREQ);
   // Maintain for 200us min
+`ifdef FORMAL
+  localparam int POWER_UP_DELAY = 200 / CYCLE_TIME_NS;
+`else
   localparam int POWER_UP_DELAY = 200_000 / CYCLE_TIME_NS;
+`endif
   // auto refresh can be performed once in 15.6us
+`ifdef FORMAL
   localparam int REFRESH_CYCLE = 16000 / CYCLE_TIME_NS;
+`else
+  localparam int REFRESH_CYCLE = 160 / CYCLE_TIME_NS;
+`endif
   // t_rfc (55ns)
   localparam int ROW_CYCLE_TIME = 55 / CYCLE_TIME_NS;
   // tRP (min) ~ 20ns
@@ -49,7 +59,7 @@ module sdram_ctrl #(
   // 2 cyles min to complete write
   localparam int MRS_DELAY = 2;
   // Programmed during MRS
-  localparam int CAS_LATENCY = 2;
+  localparam int CAS_LATENCY = 3;
 
   assign sdram_clk = clk;
 
@@ -73,11 +83,11 @@ module sdram_ctrl #(
   sram_state_t state = BOOT, prev_state, next_state;
   reg [31:0] cycle_counter = '0;
   reg [31:0] refresh_counter = '0;
-  reg [ 7:0] idle_cycles = '0;
+  reg [7:0] idle_cycles = '0;
   reg [10:0] ra = '0;
-  reg [ 7:0] ca = '0;
+  reg [7:0] ca = '0;
   // 0 = read, 1 = write
-  reg mrs_done = 0, boot = 0;
+  reg mrs_done = 0;
   reg op = '0;
   reg refresh_pending = '1;
 
@@ -92,6 +102,9 @@ module sdram_ctrl #(
     prev_state <= state;
     state <= next_state;
     cycle_counter <= (state != prev_state) ? '0 : cycle_counter + 'd1;
+
+    if (state == WRITE) idle_cycles <= 'd0;
+    else idle_cycles <= idle_cycles == 0 ? idle_cycles : idle_cycles - 'd1;
   end
 
   always_comb begin
@@ -116,7 +129,8 @@ module sdram_ctrl #(
         if (cycle_counter == ROW_CYCLE_TIME) next_state = AUTOREFRESH_DONE;
       end
       AUTOREFRESH_DONE: begin
-        if (boot == '0) next_state = AUTOREFRESH_START;
+        // issue 2 autorefresh commands at the start for booting
+        if (boot_done == '0) next_state = AUTOREFRESH_START;
         else if (mrs_done == '0) next_state = MRS;
         else if (wr_req == 'b1 || rd_req == 'b1) next_state = GRANT;
         else next_state = NOOP;
@@ -137,7 +151,7 @@ module sdram_ctrl #(
         next_state = NOOP;
       end
       READ_WAIT: begin
-        if (cycle_counter == CAS_LATENCY - 1) next_state = READ;
+        if (cycle_counter == CAS_LATENCY) next_state = READ;
       end
       READ: begin
         next_state = NOOP;
@@ -150,19 +164,30 @@ module sdram_ctrl #(
     if (rst) begin
       wr_granted <= '0;
       rd_granted <= '0;
-      rd_valid   <= '0;
+      rd_valid <= '0;
+      boot_done <= '0;
+      sdram_dq_oe <= '0;
     end else begin
       wr_granted  <= '0;
       rd_granted  <= '0;
       sdram_dq_oe <= '0;
       case (state)
-        BOOT, NOOP, AUTOREFRESH_WAIT: begin
+        BOOT: begin
+          sdram_ras_n <= 1;
+          sdram_cas_n <= 1;
+          sdram_we_n  <= 1;
+          boot_done   <= '0;
+        end
+        NOOP, AUTOREFRESH_WAIT: begin
           sdram_ras_n <= 1;
           sdram_cas_n <= 1;
           sdram_we_n <= 1;
           rd_valid <= '0;
         end
         GRANT: begin
+          sdram_ras_n <= 1;
+          sdram_cas_n <= 1;
+          sdram_we_n <= 1;
           op <= wr_req;
           ra <= wr_req ? wr_ad[18:8] : rd_ad[18:8];
           ca <= wr_req ? wr_ad[7:0] : rd_ad[7:0];
@@ -186,8 +211,8 @@ module sdram_ctrl #(
         AUTOREFRESH_DONE: begin
           sdram_ras_n <= 1'b0;
           sdram_cas_n <= 1'b0;
-          sdram_we_n <= 1'b1;
-          boot <= 1'b1;
+          sdram_we_n  <= 1'b1;
+          boot_done   <= 1'b1;
         end
         ACTIVATE: begin
           sdram_ras_n <= 1'b0;
@@ -212,7 +237,7 @@ module sdram_ctrl #(
           // A6-A4 CAS latency 'b010 = 2
           // A3 burst type sequential = 0
           // A2-A0 burst length 'b000 = 1
-          sdram_addr <= 11'b01000100000;
+          sdram_addr <= 11'b01000110000;
         end
         READ_WAIT: begin
           sdram_ras_n <= 1'b1;
@@ -238,19 +263,29 @@ module sdram_ctrl #(
 `ifdef FORMAL
   logic f_past_valid;
   initial f_past_valid = 0;
+  logic [7:0] wr_grant_cycles = 0;
   always @(posedge clk) begin
     f_past_valid <= 1'b1;
+    if (wr_req) wr_grant_cycles <= wr_grant_cycles + 'd1;
+    else wr_grant_cycles <= '0;
+
+    assert (wr_grant_cycles < 8);
+    if (wr_req) assume (boot_done && $stable(wr_req));
+    if (wr_granted) assume (wr_req == 0);
+
+    if (rd_req) assume (boot_done && $stable(rd_req));
+    if (rd_granted) assume (rd_req == 0);
   end
 
   always_comb begin
     assume (!rst);
     if (f_past_valid) begin
       // check that we GRANT before activating
-      if (state == ACTIVATE) assert (prev_state == GRANT);
+      if (state == ACTIVATE) assert (prev_state == GRANT || prev_state == ACTIVATE);
       // check that read is granted
-      if (state == READ) assert (prev_state == READ || prev_state == GRANT);
-      // READ stays for 2 cycles
-      if (prev_state == READ && state != READ) assert (cycle_counter == CAS_LATENCY);
+      if (state == READ) assert (prev_state == READ || prev_state == READ_WAIT);
+      // READ_WAIT stays for CAS_LATENCY cycles
+      if (state == READ) assert (cycle_counter == CAS_LATENCY);
       // check that write is granted
       if (state == WRITE) assert (prev_state == GRANT);
       // precharge before AUTOREFRESH

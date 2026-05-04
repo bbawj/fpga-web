@@ -76,10 +76,18 @@ module spi_master (
       .sig(sclk_miso),
       .q  (miso_sync)
   );
+  synchronizer #(
+      // Add 1 because data is ready on spiclk but spiclk is 90 degrees later
+      // than clk
+      .SYNC_WIDTH(SYNC_STAGES + 1)
+  ) sync2 (
+      .clk(clk),
+      .sig(next_byte_valid),
+      .q  (byte_valid)
+  );
   always @(posedge clk) begin
     working <= {working[6:0], miso_sync};
     o_data_valid <= 1'b0;
-    byte_valid <= next_byte_valid;
     if (byte_valid) begin
       o_data_valid <= 1'b1;
       o_data <= working;
@@ -143,13 +151,12 @@ module spi_master (
         end
       end
       WAIT_SYNC: begin
+        // TODO: does not seem to be needed for lower freq (25mhz)
+        // Add 1 cycle as a workaround for MISO turnaround time
         next_cs = 0;
         next_clken = 1;
-        // Add 1 cycle as a workaround for MISO turnaround time
-        if (state_counter == SYNC_STAGES + 'd1) begin
-          next_state = DATA;
-          next_counter_reset = 1;
-        end
+        next_state = DATA;
+        next_counter_reset = 1;
       end
       DATA: begin
         next_cs = 0;
