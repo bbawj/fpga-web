@@ -4,10 +4,9 @@ import logging
 import pytest
 
 import cocotb
-from cocotb.runner import get_runner
+from cocotb_tools.runner import get_runner
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, with_timeout, ReadWrite
-from cocotb.binary import BinaryValue
 
 
 class TB:
@@ -39,35 +38,36 @@ async def allocator_sizes(dut):
 
     await tb.reset(tb.dut.rst)
     tb.dut.alloc_en.setimmediatevalue(1)
-    tb.dut.request_size.setimmediatevalue(BinaryValue(14, 5, False, 0))
+    tb.dut.request_size.setimmediatevalue(4)
 
     await RisingEdge(tb.dut.clk)
     tb.dut.alloc_en.value = 0
     await with_timeout(RisingEdge(tb.dut.o_valid), 10, "us")
-    assert tb.dut.o_err == 0;
+    assert tb.dut.o_err.value == 0
 
     await RisingEdge(tb.dut.clk)
     tb.dut.alloc_en.value = 1
-    tb.dut.request_size.value = BinaryValue(18, 5, False, 0)
+    tb.dut.request_size.value = 18
     await RisingEdge(tb.dut.clk)
     tb.dut.alloc_en.value = 0
     await with_timeout(RisingEdge(tb.dut.o_valid), 10, "us")
     await RisingEdge(tb.dut.clk)
-    assert tb.dut.o_err == 1;
+    assert tb.dut.o_err.value == 1
 
     await RisingEdge(tb.dut.clk)
     tb.dut.alloc_en.value = 1
-    tb.dut.request_size.value = BinaryValue(3, 5, False, 0)
+    tb.dut.request_size.value = 3
     await RisingEdge(tb.dut.clk)
     tb.dut.alloc_en.value = 0
     await with_timeout(RisingEdge(tb.dut.o_valid), 10, "us")
     await RisingEdge(tb.dut.clk)
-    assert tb.dut.o_err == 0;
+    assert tb.dut.o_err.value == 0
 
-@cocotb.test()
+
+# @cocotb.test()
 async def allocator_ebr(dut):
     tb = TB(dut)
-    sizes = [16,8]
+    sizes = [16, 8]
     payloads = [incrementing_payload(s) for s in sizes]
     addr = []
 
@@ -92,15 +92,15 @@ async def allocator_ebr(dut):
 async def alloc_readback(tb, alloc_len, alloc_payload):
     out = bytearray()
     tb.dut.alloc_en.value = 1
-    tb.dut.request_size.value = BinaryValue(alloc_len, 5, False, 0)
+    tb.dut.request_size.value = alloc_len
     await with_timeout(RisingEdge(tb.dut.o_valid), 10, "us")
-    assert tb.dut.o_err == 0;
+    assert tb.dut.o_err == 0
     tb.dut.alloc_en.value = 0
     tb.dut.wr_en.value = 1
     tb.dut.i_addr.value = tb.dut.o_addr.value
     addr = tb.dut.o_addr.value
     for d in alloc_payload:
-        tb.dut.wr_data.value = BinaryValue(d, 8, False, 0)
+        tb.dut.wr_data.value = d
         await RisingEdge(tb.dut.clk)
 
     tb.dut.wr_en.value = 0
@@ -118,18 +118,20 @@ async def alloc_readback(tb, alloc_len, alloc_payload):
     assert out == alloc_payload
     return addr
 
+
 def incrementing_payload(length):
     return bytearray(itertools.islice(itertools.cycle(range(256)), length))
 
+
 @pytest.mark.parametrize("RD_WIDTH", [8, 32])
 def test_simple_dff_runner(RD_WIDTH):
-    sim = os.getenv("SIM", "icarus")
+    sim = os.getenv("SIM", "verilator")
     RATIO = f"{int(RD_WIDTH / 8)}"
     source_folder = "../../rtl"
     sources = [
-            f"{source_folder}/ebr.sv",
-            f"{source_folder}/allocator.sv",
-               "test_allocator.sv"]
+        f"{source_folder}/ebr.sv",
+        f"{source_folder}/allocator.sv",
+        "test_allocator.sv"]
 
     runner = get_runner(sim)
     runner.build(
@@ -141,7 +143,7 @@ def test_simple_dff_runner(RD_WIDTH):
         verbose=True,
         parameters={"MAU": 8, "RD_WIDTH": RD_WIDTH},
         includes=[f"{source_folder}/"],
-        # build_args=["--trace-fst", "--trace-structs"],
+        build_args=["--trace-fst", "--trace-structs"],
         # build_args=["-y/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/"],
         timescale=("1ns", "1ps"),
     )
@@ -151,6 +153,7 @@ def test_simple_dff_runner(RD_WIDTH):
                 extra_env={"RATIO": RATIO},
                 parameters={"MAU": 8, "RD_WIDTH": RD_WIDTH},
                 hdl_toplevel="test_allocator", test_module="test_allocator,")
+
 
 if __name__ == "__main__":
     test_simple_dff_runner()

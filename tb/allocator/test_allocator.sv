@@ -1,7 +1,7 @@
 module test_allocator #(
     parameter MAU = 32,
     parameter RD_WIDTH = MAU,
-    parameter NUM_BLOCKS = 32,
+    parameter NUM_BLOCKS = 16,
     parameter NUM_BLOCKS_WIDTH = $clog2(NUM_BLOCKS)
 ) (
     input clk,
@@ -23,7 +23,7 @@ module test_allocator #(
   allocator #(
       .MAU(MAU),
       .NUM_BLOCKS(NUM_BLOCKS)
-  ) _allocator (
+  ) allocator_ (
       .clk(clk),
       .rst(rst),
       .en(alloc_en),
@@ -37,14 +37,15 @@ module test_allocator #(
       .WR_WIDTH(MAU),
       .RD_WIDTH(RD_WIDTH),
       .SIZE(NUM_BLOCKS)
-  ) _blockmem (
-      .wr_clk (clk),
-      .wr_en  (wr_en),
+  ) blockmem_ (
+      .wr_clk(clk),
+      .wr_en(wr_en),
       .wr_addr(i_addr),
       .wr_data(wr_data),
-      .rd_clk (rd_clk),
-      .rd_en  (rd_en),
+      .rd_clk(rd_clk),
+      .rd_en(rd_en),
       .rd_addr(i_addr),
+      .rd_valid(),
       .rd_data(o_rd_data)
   );
 
