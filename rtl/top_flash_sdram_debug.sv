@@ -47,6 +47,7 @@ module top_flash_sdram_debug (
 
   reg spi_en, spi_data_valid;
   reg [7:0] spi_data;
+  localparam reg [23:0] OFFSET_IN_FLASH = 'h00000;
   spi_master spi (
       .clk(sysclk),
       .spi_sclk(spiclk),
@@ -58,7 +59,7 @@ module top_flash_sdram_debug (
       .i_en(spi_en),
       .i_size(NUM_BYTES),
       .i_inst(8'h03),
-      .i_offset('0),
+      .i_offset(OFFSET_IN_FLASH),
       .i_addr_en('1),
       .o_data_valid(spi_data_valid),
       .o_data(spi_data)

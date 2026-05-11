@@ -1,6 +1,7 @@
 `default_nettype none
 module uart #(
     parameter DATA_WIDTH = 8,
+    parameter DEPTH = 512,
     parameter FREQ = 125_000_000,
     parameter BAUD_RATE = 38400,
     parameter BUF_USE_BLOCKRAM = 0
@@ -20,7 +21,7 @@ module uart #(
   reg [DATA_WIDTH - 1:0] fifo_dout, fifo_dout_q;
   fifo #(
       .DATA_WIDTH(DATA_WIDTH),
-      .DEPTH(128),
+      .DEPTH(DEPTH),
       .EBR(BUF_USE_BLOCKRAM)
   ) fifo_ (
       .clk  (clk),

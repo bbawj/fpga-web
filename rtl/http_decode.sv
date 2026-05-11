@@ -7,13 +7,16 @@
 * is asserted for only 1 cycle with no handshaking.
 */
 module http_decode #(
-    parameter CAM_ADDR_FILE,
-    parameter CAM_SIZE_FILE
+    parameter HTTP_ADDR_FILE = "",
+    parameter HTTP_SIZE_FILE = ""
 ) (
     input clk,
     input rst,
+    input tcp_payload_valid,
     input i_payload_valid,
-    input [7:0] i_payload_data,
+    input [31:0] i_payload_data,
+    // Asserted to ask for the payload
+    output reg payload_rd_en,
     output reg res_valid,
     output reg res_err,
     output reg [15:0] res_payload_size,
@@ -23,50 +26,74 @@ module http_decode #(
 
   typedef enum {
     IDLE,
+    GET_PAYLOAD,
     METHOD,
     TARGET,
     MATCH,
-    WAIT_CAM,
+    // FIXME: might not need extra stall here
+    WAIT_CAM1,
+    WAIT_CAM2,
     ABORT
   } state_t;
 
   state_t state, next_state;
   reg [ 8:0] key;
   reg [31:0] working;
-  reg [2:0] method_counter, target_counter;
+  reg [ 2:0] method_counter;
   always_ff @(posedge clk) begin
-    state <= next_state;
-    working <= i_payload_valid ? {working[23:0], i_payload_data} : working;
-    method_counter <= state != METHOD ? 0 : method_counter + 'd1;
-    target_counter <= state != TARGET ? 0 : target_counter + 'd1;
+    if (rst) begin
+      state <= IDLE;
+      method_counter <= '0;
+      res_valid <= 0;
+      res_err <= 0;
+      payload_rd_en <= 0;
+    end else begin
+      state <= next_state;
+      working <= i_payload_valid ? i_payload_data : working;
+      method_counter <= state != METHOD ? 0 : method_counter + 'd1;
 
-    // For now we only support ascii [0-7] and [a-z|A-Z]
-    if (state == TARGET) key <= {1'b0, working[7:0]} - 'd48;
+      // For now we only support ascii [0-7] and [a-z|A-Z]
+      if (state == TARGET) key <= {1'b0, working[7:0]} - 'd48;
 
-    case (state)
-      IDLE: res_valid <= 1'b0;
-      WAIT_CAM: begin
-        res_valid <= 1'b1;
-        res_err   <= res_payload_addr == '0 || res_payload_size == '0;
-      end
-      ABORT: begin
-        res_valid <= 1'b1;
-        res_err   <= 1'b1;
-      end
-      default: begin
-        res_valid <= res_valid;
-        res_err   <= res_err;
-      end
-    endcase
+      case (state)
+        IDLE: begin
+          res_valid <= 1'b0;
+          res_err <= 0;
+          payload_rd_en <= 0;
+        end
+        METHOD: begin
+          payload_rd_en <= 1;
+        end
+        TARGET, GET_PAYLOAD: begin
+          payload_rd_en <= 1;
+        end
+        WAIT_CAM2: begin
+          res_valid <= 1'b1;
+          res_err <= res_payload_size == '0;
+          payload_rd_en <= 0;
+        end
+        ABORT: begin
+          res_valid <= 1'b1;
+          res_err <= 1'b1;
+          payload_rd_en <= 0;
+        end
+        default: begin
+          res_valid <= res_valid;
+          res_err <= res_err;
+          payload_rd_en <= 0;
+        end
+      endcase
+    end
   end
 
   always_comb begin
     next_state = state;
     case (state)
-      IDLE: if (i_payload_valid) next_state = METHOD;
-      METHOD:
-      if (method_counter == 'd3) begin
-        if ("GET " == working) next_state = TARGET;
+      IDLE: if (tcp_payload_valid) next_state = GET_PAYLOAD;
+      GET_PAYLOAD: if (i_payload_valid) next_state = METHOD;
+      METHOD: begin
+        // LSB order
+        if (" TEG" == working) next_state = TARGET;
         else next_state = ABORT;
       end
       TARGET: begin
@@ -74,9 +101,10 @@ module http_decode #(
         next_state = MATCH;
       end
       MATCH: begin
-        next_state = WAIT_CAM;
+        next_state = WAIT_CAM1;
       end
-      WAIT_CAM: begin
+      WAIT_CAM1: next_state = WAIT_CAM2;
+      WAIT_CAM2: begin
         next_state = IDLE;
       end
       ABORT: if (!i_payload_valid) next_state = IDLE;
@@ -85,8 +113,8 @@ module http_decode #(
   end
 
   http_entry #(
-      .CAM_ADDR_FILE(CAM_ADDR_FILE),
-      .CAM_SIZE_FILE(CAM_SIZE_FILE)
+      .HTTP_ADDR_FILE(HTTP_ADDR_FILE),
+      .HTTP_SIZE_FILE(HTTP_SIZE_FILE)
   ) cam (
       .clk(clk),
       .key(key),

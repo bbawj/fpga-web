@@ -37,6 +37,10 @@ module flash2sdram #(
       spi_ready <= 0;
       write_counter <= 0;
       read_counter <= 0;
+      sdram_wr_ad <= 0;
+      sdram_wr_req <= 0;
+      sdram_rd_req <= 0;
+      sdram_rd_ad <= 0;
     end else begin
       spi_counter <= spi_counter + (spi_data_valid ? 1 : 0);
       spi_ready <= spi_counter == 'd3 && spi_data_valid;

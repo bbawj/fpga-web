@@ -1,6 +1,6 @@
 module fifo #(
     parameter DATA_WIDTH = 8,
-    parameter DEPTH = 64,
+    parameter DEPTH = 512,
     parameter ADDR_WIDTH = $clog2(DEPTH),
     // whether to use block RAM, not supported for all data & addr widths
     parameter EBR = 0
@@ -50,10 +50,12 @@ module fifo #(
       end
     end else begin
       ram_wrap #(
-          .DATA_WIDTH(DATA_WIDTH),
+          .WR_WIDTH  (DATA_WIDTH),
+          .RD_WIDTH  (DATA_WIDTH),
           .ADDR_WIDTH(ADDR_WIDTH)
       ) mem (
-          .clk(clk),
+          .wr_clk(clk),
+          .rd_clk(clk),
           .wr_addr(wr_ptr[ADDR_WIDTH-1:0]),
           .rd_addr(rd_ptr[ADDR_WIDTH-1:0]),
           .din(din),

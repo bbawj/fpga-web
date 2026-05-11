@@ -9,13 +9,14 @@ module top_ebr_debug (
       .SYSCLK_DIV(5),
       .TXC_DIV(5),
       .TXC_PHASE(5),
-      .MDC_DIV(250),
+      .SPI_DIV(5),
+      .SPI_PHASE(5),
       .FB_DIV(5)
   ) _clk_gen (
       .clk_in(clk_25mhz),
       .sysclk(sysclk),
+      .spi_en(1'b1),
       .txc(),
-      .mdc(),
       .clk_locked()
   );
 
