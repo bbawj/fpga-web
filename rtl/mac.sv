@@ -1,7 +1,10 @@
 `default_nettype none
 `include "utils.svh"
 
-module mac (
+module mac #(
+    parameter HTTP_ADDR_FILE = "",
+    parameter HTTP_SIZE_FILE = ""
+) (
     input wire clk,
     // for TXC
     input wire clk90,
@@ -9,7 +12,13 @@ module mac (
     input tcp_echo_en,
     output wire led,
     output wire uart_tx,
-
+    // Connect to external memory controller
+    output reg mem_ctrl_rd_req,
+    output reg [18:0] mem_ctrl_rd_ad,
+    output reg [15:0] mem_ctrl_rd_size,
+    input reg mem_ctrl_rd_valid,
+    input reg mem_ctrl_rd_granted,
+    input reg [31:0] mem_ctrl_rd_data,
     // PHY0 MII Interface
     output wire phy_txc,
     output reg [3:0] phy_txd,
@@ -65,10 +74,38 @@ module mac (
       .phy_txd(phy_txd)
   );
 
-  reg send_arp, send_tcp, tcp_empty;
-  reg pkt_rd_en, tcp_tx_payload_rd_en, tcp_tx_payload_rd_valid;
-  reg [18:0] tcp_tx_payload_rd_ad;
-  tcp::packet_t tcp_tx_packet;
+  logic tcp_buff_rd_en, tcp_buff_rd_valid;
+  logic [31:0] tcp_buff_rd_data;
+
+  // Short circuit read to the incoming buffer.
+  // If tcp_echo_en is asserted, there is no need to go to cache, just use 
+  // incoming buffer payload.
+  assign tcp_buff_rd_en = tcp_echo_en ? tcp_tx_payload_rd_en : http_req_payload;
+  assign tcp_tx_payload_rd_data = tcp_echo_en ? tcp_buff_rd_data : mem_ctrl_rd_data;
+  assign tcp_tx_payload_rd_valid = tcp_echo_en ? tcp_buff_rd_valid : mem_ctrl_rd_valid;
+
+  ebr #(
+      .USE_BLOCKRAM(0),
+      .REGMODE("OUTREG"),
+      .ADDR_WIDTH(11),
+      .WR_WIDTH(8),
+      .RD_WIDTH(32)
+  ) tcp_incoming_buffer (
+      .wr_clk(phy_rxc),
+      .wr_en(tcp_decode_payload_valid),
+      .wr_addr('0),
+      .wr_data(tcp_decode_payload),
+      .rd_clk(clk),
+      .rd_en(tcp_buff_rd_en),
+      .rd_addr('0),
+      .rd_valid(tcp_buff_rd_valid),
+      .rd_data(tcp_buff_rd_data)
+  );
+
+  assign mem_ctrl_rd_req = tcp_tx_payload_rd_en && !tcp_echo_en;
+
+  reg send_arp, send_tcp;
+  logic tcp_tx_payload_rd_en, tcp_tx_payload_rd_valid;
   tcp::packet_t tcp_tx_packet_pending;
 
   mac_tx #(
@@ -84,13 +121,13 @@ module mac (
       .i_arp_encode_tha(arp_encode_tha),
       .i_arp_encode_tpa(arp_encode_tpa),
 
-      .tcp_empty(tcp_empty),
-      .pkt_rd_en(pkt_rd_en),
-      .pkt_external(tcp_tx_packet),
+      .send_tcp(send_tcp),
+      .pkt_external(tcp_tx_packet_pending),
       .tcp_payload_rd_valid(tcp_tx_payload_rd_valid),
       .tcp_payload_rd_data(tcp_tx_payload_rd_data),
       .tcp_payload_rd_en(tcp_tx_payload_rd_en),
-      .tcp_payload_rd_ad(tcp_tx_payload_rd_ad),
+      .tcp_payload_rd_ad(mem_ctrl_rd_ad),
+      .tcp_payload_rd_size(mem_ctrl_rd_size),
 
       .mac_txd (mac_txd),
       .mac_txen(mac_txen)
@@ -132,7 +169,7 @@ module mac (
   reg [47:0] mac_sa;
   mac_decode #(
       .MAC_ADDR(LOC_MAC_ADDR)
-  ) _mac_decode (
+  ) mac_decode_ (
       .clk(phy_rxc),
       .rst(rst),
       .rxd_realtime(rxd),
@@ -168,7 +205,7 @@ module mac (
   );
 
   tcp::packet_t packet;
-  reg [7:0] tcp_payload;
+  reg [7:0] tcp_decode_payload;
   reg tcp_decode_payload_valid, tcp_decode_done, tcp_decode_err;
   reg [15:0] tcp_decode_peer_port;
   reg [31:0] tcp_decode_sequence_num, tcp_decode_ack_num;
@@ -190,7 +227,7 @@ module mac (
       .flags(tcp_decode_flags),
       .ack_num(tcp_decode_ack_num),
       .window(tcp_decode_window),
-      .payload(tcp_payload),
+      .payload(tcp_decode_payload),
       .payload_valid(tcp_decode_payload_valid),
       .payload_size(tcp_decode_payload_size),
       .payload_checksum(tcp_decode_payload_checksum),
@@ -215,50 +252,35 @@ module mac (
     end
   end
 
-  reg tcp_arb_rdy, tcp_payload_valid;
-  reg [31:0] tcp_tx_payload_rd_data;
+  reg tcp_arb_rdy, tcp_payload_valid, tcp_payload_err;
+  wire [31:0] tcp_tx_payload_rd_data;
+  reg  [18:0] to_send_payload_addr;
+  reg [15:0] to_send_payload_size, to_send_payload_checksum;
+  reg arb_upper_granted;
   tcp_arbiter arb (
       .clk(clk),
       .rst(rst),
       .rxc(phy_rxc),
-      .tcp_rx_payload_valid(tcp_decode_payload_valid),
-      .tcp_rx_payload_data(tcp_payload),
-      .tcp_rx_payload_rd_en(tcp_tx_payload_rd_en),
-      .tcp_rx_payload_rd_valid(tcp_tx_payload_rd_valid),
-      .tcp_rx_payload_rd_data(tcp_tx_payload_rd_data),
       .rdy(tcp_arb_rdy),
+      // TODO: provide as parameter
       .tcp_echo_en(tcp_echo_en),
-      .is_tx(),
-      .to_send_peer_addr(),
-      .to_send_peer_port(),
-      .to_send_payload_addr(),
-      .to_send_payload_size(),
-      .is_rx(incoming_tcp),
-      .packet(packet),
 
+      .is_tx(outgoing_tcp),
+      .upper_granted(arb_upper_granted),
+      .to_send_payload_addr(to_send_payload_addr),
+      .to_send_payload_size(to_send_payload_size),
+      .to_send_payload_checksum(to_send_payload_checksum),
+
+      .is_rx(incoming_tcp),
+      .rx_packet(packet),
       .tcp_payload_valid(tcp_payload_valid),
+      .tcp_payload_err(tcp_payload_err),
       .send_tcp(send_tcp),
       .o_pkt_to_send(tcp_tx_packet_pending)
       // .tcp_payload_addr(),
   );
 
-  // Handle up to 2 in flight outgoing packets since we do not implement any
-  // delayed ACK, every received packet will have 1 ACK reply and if the
-  // response from our application is too quick there needs to be a buffer
-  fifo #(
-      .DATA_WIDTH(187),
-      .DEPTH(2)
-  ) outgoing_pkt_queue (
-      .clk  (clk),
-      .rst  (rst),
-      .wr_en(send_tcp),
-      .din  (tcp_tx_packet_pending),
-      .full (),
-      .rd_en(pkt_rd_en),
-      .dout (tcp_tx_packet),
-      .empty(tcp_empty),
-      .count()
-  );
+
   reg arp_err;
   reg arp_done;
   reg [47:0] arp_sha, arp_tha, arp_encode_tha;
@@ -283,7 +305,10 @@ module mac (
     uart_valid <= mac_txen;
     uart_data  <= mac_txd;
   end
-  uart _uart (
+  uart #(
+      .BUF_USE_BLOCKRAM(1),
+      .DEPTH(1028)
+  ) _uart (
       .clk(clk),
       .rst(rst),
       .valid(uart_valid),
@@ -293,7 +318,7 @@ module mac (
   );
 `endif
 
-  reg arp_done_strectched;
+  reg arp_done_strectched, arp_done_sync, arp_done_prev;
   pulse_stretcher stretcher (
       .clk(phy_rxc),
       .d  (arp_done),
@@ -304,9 +329,10 @@ module mac (
       .sig(arp_done),
       .q  (arp_done_sync)
   );
-  reg arp_done_sync;
-  reg arp_done_prev;
+  reg outgoing_tcp;
   always @(posedge clk) begin : generate_send_pulse
+    // FIXME: send_arp should be passed to a FIFO similar to send_tcp in case
+    // send_arp is asserted when TX path is already busy
     send_arp <= '0;
     arp_done_prev <= arp_done_sync;
     if (!arp_done_prev && arp_done_sync && arp_tpa == LOC_IP_ADDR) begin
@@ -315,6 +341,58 @@ module mac (
       send_arp <= 1;
     end
   end
+
+  // Handles outgoing_tcp
+  // Checks for HTTP decode OK, waits for SM approval, fire off outgoing_tcp.
+  // SM responds a few cycles after HTTP decode validates.
+  logic [1:0] http_state = 0;
+  always @(posedge clk) begin
+    case (http_state)
+      0: begin
+        outgoing_tcp <= 1'b0;
+        if (http_res_valid && !http_res_err) begin
+          to_send_payload_addr <= http_payload_addr;
+          to_send_payload_size <= http_payload_size;
+          to_send_payload_checksum <= http_payload_checksum;
+          outgoing_tcp <= 1;
+          http_state <= 1;
+        end
+      end
+      1: begin
+        if (arb_upper_granted) begin
+          http_state   <= 0;
+          outgoing_tcp <= 0;
+        end
+      end
+      default: begin
+        http_state   <= 0;
+        outgoing_tcp <= 0;
+      end
+    endcase
+  end
+
+
+  reg http_res_valid, http_res_err, http_req_payload;
+  reg [18:0] http_payload_addr;
+  reg [15:0] http_payload_size, http_payload_checksum;
+  http_decode #(
+      .HTTP_ADDR_FILE(HTTP_ADDR_FILE),
+      .HTTP_SIZE_FILE(HTTP_SIZE_FILE)
+  ) http_dec (
+      // FIXME: decode payload is off from phy_rxc
+      .clk(clk),
+      .rst(rst),
+      .tcp_payload_valid(tcp_payload_valid && !tcp_payload_err),
+      .i_payload_valid(tcp_buff_rd_valid),
+      .i_payload_data(tcp_buff_rd_data),
+      .payload_rd_en(http_req_payload),
+
+      .res_valid(http_res_valid),
+      .res_err(http_res_err),
+      .res_payload_size(http_payload_size),
+      .res_payload_checksum(http_payload_checksum),
+      .res_payload_addr(http_payload_addr)
+  );
 
 `endif
 

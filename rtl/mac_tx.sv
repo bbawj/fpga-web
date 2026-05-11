@@ -11,14 +11,14 @@ module mac_tx #(
     input reg [47:0] i_arp_encode_tha,
     input reg [31:0] i_arp_encode_tpa,
 
-    input tcp_empty,
-    output reg pkt_rd_en,
+    input send_tcp,
     input tcp::packet_t pkt_external,
     // RD_EN asserted to get data from SDRAM onto tcp_payload_data
     input reg tcp_payload_rd_valid,
     input reg [31:0] tcp_payload_rd_data,
     output reg tcp_payload_rd_en,
     output reg [18:0] tcp_payload_rd_ad,
+    output reg [15:0] tcp_payload_rd_size,
 
     output reg [7:0] mac_txd,
     output reg mac_txen
@@ -26,26 +26,47 @@ module mac_tx #(
 
   // FIFO has 1 cycle latency between pkt_rd_en and data being available for
   // sampling so we wait for falling edge here.
-  reg pkt_rd_en_q1;
+  reg pkt_rd_en, pkt_rd_en_q1, pkt_rd_falling;
   logic [18:0] pkt_payload_addr;
   logic [15:0] pkt_payload_size;
 
+  tcp::packet_t pkt;
   always @(posedge clk) begin
-    pkt_rd_en_q1 <= pkt_rd_en;
-    if (~pkt_rd_en && pkt_rd_en_q1) begin
-      pkt_payload_addr <= pkt_external.payload_addr;
-      pkt_payload_size <= pkt_external.payload_size;
-      ip_encode_len <= pkt_external.payload_size + 'd40;
-      ip_encode_da <= pkt_external.peer_addr;
-      tcp_encode_len <= pkt_external.payload_size + 'd20;
-      tcp_encode_dest_port <= pkt_external.peer_port;
-      tcp_encode_sequence_num <= pkt_external.sequence_num;
-      tcp_encode_ack_num <= pkt_external.ack_num;
-      tcp_encode_flags <= pkt_external.flags;
-      tcp_encode_window <= pkt_external.window;
-      tcp_encode_initial_checksum <= pkt_external.checksum;
+    pkt_rd_en_q1   <= pkt_rd_en;
+    pkt_rd_falling <= ~pkt_rd_en && pkt_rd_en_q1;
+    if (pkt_rd_falling) begin
+      pkt_payload_addr <= pkt.payload_addr;
+      pkt_payload_size <= pkt.payload_size;
+      ip_encode_len <= pkt.payload_size + 'd40;
+      ip_encode_da <= pkt.peer_addr;
+      tcp_encode_len <= pkt.payload_size + 'd20;
+      tcp_encode_dest_port <= pkt.peer_port;
+      tcp_encode_sequence_num <= pkt.sequence_num;
+      tcp_encode_ack_num <= pkt.ack_num;
+      tcp_encode_flags <= pkt.flags;
+      tcp_encode_window <= pkt.window;
+      tcp_encode_initial_checksum <= pkt.checksum;
     end
   end
+
+  // Handle up to 2 in flight outgoing packets since we do not implement any
+  // delayed ACK, every received packet will have 1 ACK reply and if the
+  // response from our application is too quick there needs to be a buffer
+  reg tcp_empty;
+  fifo #(
+      .DATA_WIDTH(187),
+      .DEPTH(2)
+  ) outgoing_pkt_queue (
+      .clk  (clk),
+      .rst  (rst),
+      .wr_en(send_tcp),
+      .din  (pkt_external),
+      .full (),
+      .rd_en(pkt_rd_en),
+      .dout (pkt),
+      .empty(tcp_empty),
+      .count()
+  );
 
   // Pull payload data into temp buffer to free up SDRAM activity
   typedef enum {
@@ -56,19 +77,22 @@ module mac_tx #(
   } payload_buff_state_t;
   payload_buff_state_t payload_buff_state = BUFF_STATE_IDLE;
   reg tcp_outgoing_wr_en = 0;
+  reg [10:0] tcp_outgoing_wr_ptr = 0;
   reg [31:0] tcp_outgoing_wr_data = 0;
-  reg [7:0] tcp_outgoing_rd_data;
+  (*keep*) reg [7:0] tcp_outgoing_rd_data;
   ebr #(
-      .SIZE(tcp::MSS / 32),
+      .USE_BLOCKRAM(1),
+      .REGMODE("OUTREG"),
+      .ADDR_WIDTH(11),
       .RD_WIDTH(8),
       .WR_WIDTH(32)
   ) tcp_outgoing_buffer (
       .wr_clk(sdram_clk),
       .wr_en(tcp_outgoing_wr_en),
-      .wr_addr('0),
+      .wr_addr(tcp_outgoing_wr_ptr),
       .wr_data(tcp_outgoing_wr_data),
       .rd_clk(clk),
-      .rd_en(tcp_encode_done | tx_state == PAYLOAD),
+      .rd_en(tcp_encode_done_pre | tcp_encode_done | tx_state == PAYLOAD),
       .rd_addr('0),
       .rd_valid(),
       .rd_data(tcp_outgoing_rd_data)
@@ -79,7 +103,7 @@ module mac_tx #(
       .SYNC_WIDTH (3)
   ) _sync (
       .clk(sdram_clk),
-      .sig(tx_state == IP),
+      .sig(pkt_rd_falling),
       .q  (tcp_outgoing_buffer_start_0)
   );
   reg [15:0] payload_counter = '0;
@@ -93,34 +117,49 @@ module mac_tx #(
         payload_counter <= '0;
         tcp_payload_rd_en <= '0;
         tcp_outgoing_wr_en <= '0;
+        tcp_outgoing_rdy <= 0;
         // Assume pkt.payload_size > 0
         if (tcp_outgoing_buffer_start_rising && pkt_payload_size > 0) begin
+          // FIXME: duration of rd_en should depend on payload_size also
           tcp_payload_rd_en <= 1'b1;
           tcp_payload_rd_ad <= pkt_payload_addr;
+          tcp_payload_rd_size <= pkt_payload_size;
           payload_buff_state <= BUFF_STATE_START;
           // RD_WIDTH is 32 whereas WR_WIDTH is 8
           payload_counter <= (pkt_payload_size >> 2) + ((pkt_payload_size[1:0] != '0) ? 'd1 : 'd0);
+        end else if (tcp_outgoing_buffer_start_rising && pkt_payload_size == 0) begin
+          tcp_outgoing_rdy <= 1'b1;
         end
       end
       BUFF_STATE_START: begin
+        tcp_payload_rd_en  <= payload_counter > 0;
+        tcp_outgoing_wr_en <= tcp_payload_rd_valid;
         if (tcp_payload_rd_valid) begin
-          tcp_outgoing_wr_en <= 1'b1;
-          payload_buff_state <= BUFF_STATE_MOVE_TO_LOCAL;
+          tcp_payload_rd_ad <= tcp_payload_rd_ad + 1;
+          tcp_outgoing_wr_ptr <= tcp_outgoing_wr_ptr + 1;
+          payload_counter <= payload_counter - 1;
         end
+        if (payload_counter == 0) payload_buff_state <= BUFF_STATE_MOVE_TO_LOCAL;
       end
       BUFF_STATE_MOVE_TO_LOCAL: begin
-        tcp_outgoing_wr_en <= 1'b1;
-        payload_counter <= payload_counter - 1;
-        if (payload_counter == 1) begin
-          tcp_outgoing_wr_en <= '0;
-          payload_buff_state <= BUFF_STATE_IDLE;
-        end
+        tcp_outgoing_wr_en <= 1'b0;
+        tcp_outgoing_rdy   <= 1;
+        payload_buff_state <= BUFF_STATE_IDLE;
       end
       default: begin
         payload_buff_state <= BUFF_STATE_IDLE;
       end
     endcase
   end
+  reg tcp_outgoing_rdy, tcp_outgoing_rdy_sync;
+  synchronizer #(
+      .INPUT_WIDTH(1),
+      .SYNC_WIDTH (2)
+  ) sync2 (
+      .clk(clk),
+      .sig(tcp_outgoing_rdy),
+      .q  (tcp_outgoing_rdy_sync)
+  );
 
 
   reg mac_encode_en, mac_encode_ready;
@@ -178,7 +217,7 @@ module mac_tx #(
       .dout(ip_encode_dout)
   );
 
-  reg tcp_encode_en, tcp_encode_done;
+  reg tcp_encode_en, tcp_encode_done, tcp_encode_done_pre;
   reg [15:0] tcp_encode_dest_port;
   reg [31:0] tcp_encode_sequence_num;
   reg [31:0] tcp_encode_ack_num;
@@ -203,7 +242,7 @@ module mac_tx #(
       .initial_checksum(tcp_encode_initial_checksum),
       // ebr has 1 cycle read latency so "pre_done_1" is required to meet
       // timing and ensure payload from ebr is ready
-      .pre_done_2(),
+      .pre_done_2(tcp_encode_done_pre),
       .pre_done_1(tcp_encode_done),
       .done(),
       .dout(tcp_encode_dout)
@@ -211,6 +250,7 @@ module mac_tx #(
   typedef enum {
     IDLE,
     ARP,
+    PAYLOAD_LOADING,
     IP_PKT_WAIT,
     IP,
     TCP,
@@ -236,24 +276,29 @@ module mac_tx #(
             mac_dest <= i_mac_da;
             ethertype <= 16'h0806;
           end else if (mac_encode_ready && !tcp_empty) begin
-            tx_state <= IP_PKT_WAIT;
+            tx_state  <= PAYLOAD_LOADING;
             pkt_rd_en <= 1;
-            mac_encode_en <= 1;
-            mac_dest <= i_mac_da;
+            mac_dest  <= i_mac_da;
             ethertype <= 16'h0800;
           end
         end
         ARP: begin
           if (arp_encode_done) tx_state <= IDLE;
         end
-        IP_PKT_WAIT: begin
+        PAYLOAD_LOADING: begin
           pkt_rd_en <= 0;
-          tx_state  <= IP;
+          if (tcp_outgoing_rdy_sync) begin
+            tx_state <= IP_PKT_WAIT;
+            mac_encode_en <= 1;
+          end
+        end
+        IP_PKT_WAIT: begin
+          tx_state <= IP;
         end
         IP: begin
           if (ip_encode_done) begin
             tx_state <= TCP;
-            payload_counter_2 <= pkt_external.payload_size;
+            payload_counter_2 <= pkt.payload_size;
           end
         end
         TCP: begin

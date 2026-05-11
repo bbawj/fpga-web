@@ -1,6 +1,7 @@
 import pytest
 import cocotb
 import os
+from pathlib import Path
 from multiprocessing import Queue
 from cocotb.triggers import RisingEdge, with_timeout, ReadWrite
 from cocotb.clock import Clock, Timer
@@ -61,7 +62,7 @@ class TB:
         await RisingEdge(self.dut.clk)
 
 
-@cocotb.test()
+# @cocotb.test()
 async def tcp_integration_basic(dut):
     speed_100 = os.getenv("SPEED_100M", None)
     tb = TB(dut, speed_100 is not None)
@@ -91,9 +92,11 @@ async def tcp_integration_basic(dut):
 
 
 class TCPIntegrated(TCPSimSock):
-    def __init__(self, tb):
+    def __init__(self, tb, echo):
         self.tb = tb
         self.last = None
+        self.recv_count = 0
+        self.echo = echo
         super().__init__(tb.dut.clk)
 
     async def send_pkt_to_hdl(self, pkt):
@@ -107,11 +110,11 @@ class TCPIntegrated(TCPSimSock):
         await self.tb.rgmii_phy.rx.send(test_frame)
 
     async def recv_async(self):
-        # TODO: check that echoed payload is matching
         while True:
             rx_frame = await with_timeout(self.tb.rgmii_phy.tx.recv(), 50000, "ns")
             rx = Ether(rx_frame.get_payload())
             cocotb.log.info("packet received from HDL")
+            self.recv_count += 1
             cocotb.log.info(rx.show2(dump=True))
             assert rx_frame.check_fcs()
             actual_ip_chksum = rx[IP].chksum
@@ -119,14 +122,14 @@ class TCPIntegrated(TCPSimSock):
             del rx[TCP].chksum
             del rx[IP].chksum
             rx = rx.__class__(bytes(rx))
-            rx.show2()
             assert rx[IP].chksum == actual_ip_chksum
             assert rx[TCP].chksum == actual_tcp_chksum
-            if Padding in rx:
-                del rx[Padding]
-            if Padding in self.last:
-                del self.last[Padding]
-            assert not self.last[TCP].payload or self.last[TCP].payload == rx[TCP].payload, "Payload not echoed properly"
+            if self.echo:
+                if Padding in rx:
+                    del rx[Padding]
+                if Padding in self.last:
+                    del self.last[Padding]
+                assert not self.last[TCP].payload or self.last[TCP].payload == rx[TCP].payload, "Payload not echoed properly"
             self.from_hdl.put(rx, block=False)
 
 
@@ -142,6 +145,7 @@ class PacketGen:
 
     def recv(self, n=None):
         cocotb.log.info("Packet gen triggered")
+        self.sent += 1
         payload = self.from_bench.get_nowait()
         return payload
 
@@ -150,11 +154,9 @@ class PacketGen:
 
     def send(self, pkt):
         pass
-        # self.sent += 1
-        # self.from_bench.put(pkt)
 
 
-@cocotb.test()
+# @cocotb.test()
 async def tcp_integration_full(dut):
     speed_100 = os.getenv("SPEED_100M", None)
     tb = TB(dut, speed_100 is not None)
@@ -165,8 +167,9 @@ async def tcp_integration_full(dut):
     client_ip = "192.168.1.1"
     client_port = 5000
     gen = PacketGen(client_ip, client_port)
+    tcp = TCPIntegrated(tb, True)
     cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
-        TCPIntegrated(tb), client_ref, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
+        tcp, client_ref, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
     await Timer(5000, "ns")
     gen.from_bench.put(Raw(RandString(size=21)))
     await Timer(5000, "ns")
@@ -184,48 +187,18 @@ async def tcp_integration_full(dut):
 
 # @cocotb.test()
 def check_check(dut):
-    b = bytes.fromhex(
-        "b025aa3306fedeadbeefcafe080045000033000140004006616769696969c0a845e21f90a508fa53ed59e0702a11501805b8f3860000000000000000000000000063cb1de5")
+    b = "b025aa3306fedeadbeefcafe0800450002a80001400040065ef269696969c0a845e21f90a1dcea449c16e5f36332501805b828c000003c21444f43545950452068746d6c3e0a3c68746d6c206c616e673d22656e223e0a3c686561643e0a202020203c6d65746120636861727365743d225554462d38223e0a202020203c6d657461206e616d653d2276696577706f72742220636f6e74656e743d2277696474683d6465766963652d77696474682c20696e697469616c2d7363616c653d312e30223e0a202020203c7469746c653e50616765204e6f7420466f756e643c2f7469746c653e0a202020203c7374796c653e0a2020202020202020626f6479207b20746578742d616c69676e3a2063656e7465723b2070616464696e673a2031353070783b20666f6e742d66616d696c793a2073616e732d73657269663b207d0a20202020202020206831207b20666f6e742d73697a653a20353070783b207d0a2020202020202020626f6479207b20666f6e742d73697a653a20323070783b20636f6c6f723a20233333333b207d0a202020202020202061207b20636f6c6f723a20233030376266663b20746578742d6465636f726174696f6e3a206e6f6e653b207d0a2020202020202020613a686f766572207b20746578742d6465636f726174696f6e3a20756e6465726c696e653b207d0a202020203c2f7374796c653e0a3c2f686561643e0a3c626f64793e0a202020203c6469763e0a20202020202020203c68313e3430343c2f68313e0a20202020202020203c703e536f7272792c20746865207061676520796f75277265206c6f6f6b696e6720666f7220646f65736e27742065786973742e3c2f703e0a20202020202020203c703e3c6120687265663d222f223e52657475726e20486f6d653c2f613e3c2f703e0a202020203c2f6469763e0a3c2f626f64793e0a3c2f68746d6c3e0a2ab37c1d"
 
-    frame = GmiiFrame.from_raw_payload(b)
-    cocotb.log.info(frame.get_fcs())
-    assert frame.check_fcs()
-
-    pkt = Ether(b)
-    actual_chksum = pkt[TCP].chksum
-    cocotb.log.info("yeet")
-    pkt.show2()
-    del pkt[TCP].chksum
-    pkt = pkt.__class__(bytes(pkt))
-
-    correct_chksum = pkt[TCP].chksum
-
-    del pkt[TCP].chksum
-    pkt[TCP].payload = Raw(bytes.fromhex(
-        "6563686f6f6f6f6f6f6f0a"))
-    pkt = pkt.__class__(bytes(pkt))
-    cocotb.log.info(pkt.show2(dump=True))
-    cocotb.log.info(actual_chksum)
-    cocotb.log.info(correct_chksum)
-    cocotb.log.info(pkt[TCP].chksum)
-
-    assert actual_chksum == pkt[TCP].chksum
+    check(b, "")
 
     assert False
 
 
-@cocotb.test()
-def check_again(dut):
-    b = "b025aa3306fedeadbeefcafe08004500002c000140004006616e69696969c0a845e21f90cd767f76e9f14499cb3f501805b883fb00007465730a0000"
-    check(b, "")
-
-
 def check(b, payload):
     b = bytes.fromhex(b)
-    if (payload != ""):
-        frame = GmiiFrame.from_raw_payload(b)
-        cocotb.log.info(frame.get_fcs())
-        assert frame.check_fcs()
+    frame = GmiiFrame.from_raw_payload(b)
+    cocotb.log.info(frame.get_fcs())
+    assert frame.check_fcs()
     pkt = Ether(b)
     actual_chksum = pkt[TCP].chksum
     pkt.show2()
@@ -244,16 +217,52 @@ def check(b, payload):
         cocotb.log.info(pkt[TCP].chksum)
 
 
+@cocotb.test()
+async def http_integration(dut):
+    speed_100 = os.getenv("SPEED_100M", None)
+    tb = TB(dut, speed_100 is not None)
+
+    await tb.reset()
+    tb.dut.tcp_echo_en.value = 0
+    client_ref = []
+    client_ip = "192.168.1.1"
+    client_port = 5000
+    gen = PacketGen(client_ip, client_port)
+    tcp = TCPIntegrated(tb, False)
+    cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
+        tcp, client_ref, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
+    await Timer(5000, "ns")
+    assert tcp.recv_count == 1
+    gen.from_bench.put(Raw("GET /0\r\n"))
+    await Timer(20000, "ns")
+    assert tcp.recv_count == 3
+    client_ref[0].stop(wait=False)
+    await Timer(10000, "ns")
+    assert tcp.recv_count == 4
+
+
+@cocotb.test(skip=True)
+async def http_integration_stop_during_payload(dut):
+    pass
+
+
 @pytest.mark.parametrize("speed_100", [False])
 def test_simple_dff_runner(speed_100):
     sim = os.getenv("SIM", "verilator")
 
     source_folder = "../../rtl"
     sources = [
-        f"../../config.vlt",
+        "../../config.vlt",
+        "./test_tcp_integration.sv",
+        f"{source_folder}/cache.sv",
+        f"{source_folder}/http_decode.sv",
+        f"{source_folder}/http_entry.sv",
         f"{source_folder}/mac_encode.sv",
+        f"{source_folder}/ram_wrap.sv",
+        f"{source_folder}/slab_allocator.sv",
+        f"{source_folder}/ram_sp.sv",
+        f"{source_folder}/sdram_dummy.sv",
         f"{source_folder}/mac_decode.sv",
-        f"./test_tcp_integration.sv",
         f"{source_folder}/synchronizer.sv",
         f"{source_folder}/ebr.sv",
         f"{source_folder}/tcp.sv",
@@ -279,8 +288,13 @@ def test_simple_dff_runner(speed_100):
         f"{source_folder}/tcb.sv",
         f"{source_folder}/crc32.sv"]
 
-    # if sim == "verilator":
-    #     sources.append("../../config.vlt")
+    addr_file = "../../tools/addrs.mem"
+    size_file = "../../tools/lengths.mem"
+    content_file = "../../tools/content_hex.mem"
+    addr_file_abs = Path(addr_file).resolve()
+    size_file_abs = Path(size_file).resolve()
+    content_file_abs = Path(content_file).resolve()
+    assert addr_file_abs.exists() and size_file_abs.exists()
 
     runner = get_runner(sim)
     runner.build(
@@ -292,10 +306,14 @@ def test_simple_dff_runner(speed_100):
         verbose=True,
         defines={"SPEED_100M": "True"} if speed_100 else {},
         includes=[f"{source_folder}/"],
+        parameters={"HTTP_ADDR_FILE": f'"{addr_file_abs}"',
+                    "HTTP_SIZE_FILE": f'"{size_file_abs}"',
+                    "HTTP_CONTENT_FILE": f'"{content_file_abs}"',
+                    },
         build_args=["--threads", "8", "--trace-fst",
                     "--trace-structs", "--bbox-unsup",
                     "-y", "/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/",
-                    "-y", "/home/bawj/lscc/diamond/3.14/cae_library/simulation/vhdl/ecp5u/",
+                    "-y", "/home/bawj/lscc/diamond/3.14/cae_library/simulation/vhdl/ecp5u/", "--timing"
                     ] if sim == "verilator" else [
             "-y/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/"],
         timescale=("1ns", "1ps"),
@@ -303,5 +321,7 @@ def test_simple_dff_runner(speed_100):
 
     runner.test(waves=True,
                 verbose=True,
+                parameters={"HTTP_ADDR_FILE": f'"{addr_file_abs}"',
+                            "HTTP_SIZE_FILE": f'"{size_file_abs}"', },
                 extra_env={"SPEED_100M": "True"} if speed_100 else {},
                 hdl_toplevel="test_tcp_integration", test_module="test_tcp_integration")

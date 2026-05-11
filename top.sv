@@ -1,20 +1,36 @@
 `default_nettype	none
-module top(
+module top #(
+  parameter HTTP_ADDR_FILE = "/home/bawj/projects/fpga_web/tools/addrs.mem",
+  parameter HTTP_SIZE_FILE = "/home/bawj/projects/fpga_web/tools/lengths.mem"
+  )(
     input wire clk_25mhz,
     input wire button,
     output wire led,
     output wire uart_tx,
     // Shared PHY control
-    output wire mdc,
-    output wire mdio,
+    // output wire mdc,
+    // output wire mdio,
     // PHY0 MII Interface
     output wire [3:0] phy0_txd,
     output wire phy0_txctl,
     output wire phy0_txc,
     input wire [3:0] phy0_rxd,
     input wire phy0_rxctl,
-    input wire phy0_rxc
+    input wire phy0_rxc,
+    // SPI flash
+    input flash_miso,
+    output flash_cs,
+    output flash_mosi,
+    // SDRAM interface
+    output wire [1:0] sdram_ba,
+    output wire sdram_we_n,
+    output wire sdram_cas_n,
+    output wire sdram_ras_n,
+    output wire sdram_clk,
+    inout [31:0] sdram_dq,
+    output wire [10:0] sdram_addr
 );
+localparam NUM_BYTES = 1000;
 
 // RGMII requires specific setup and hold times.
 // This is achieved with a 90 degree phase offset tx_clk relative to the
@@ -22,7 +38,7 @@ module top(
 reg pll_locked;
 wire sysclk;
 wire sysclk90;
-wire spiclk, spi_en;
+wire spiclk, spi_clken;
 `ifdef SPEED_100M
 // Phase range from 0 to 46, 0 phase is 23. Each division is 1/24 degrees
 clk_gen #(.SYSCLK_DIV(24), .TXC_DIV(24), .TXC_PHASE(29), .MDC_DIV(240), .FB_DIV(1))
@@ -36,35 +52,135 @@ clk_gen #(.SYSCLK_DIV(5), .TXC_DIV(5), .TXC_PHASE(5), .SPI_DIV(5), .SPI_PHASE(5)
 USRMCLK u1(.USRMCLKI(spiclk), .USRMCLKTS(~pll_locked));
 
 wire rst;
-assign led = ~rst;
+assign led = ~rst && (flash_done ? blinking : 1'b1);
 areset _areset(.clk(sysclk), .rst_n(button & pll_locked), .rst(rst));
+  // reg [31:0] cache_rd_data;
+  // reg cache_rd_valid;
+  // cache c (
+  //     .clk(clk),
+  //     .rst(rst),
+  //     // Do not go to cache if tcp_echo_en
+  //     .rd_en(tcp_tx_payload_rd_en && !tcp_echo_en),
+  //     .rd_ad(tcp_tx_payload_rd_ad),
+  //     .rd_size(tcp_tx_payload_rd_size),
+  //     .rd_valid(cache_rd_valid),
+  //     .rd_data(cache_rd_data),
+  //     .sdram_rd_valid(mem_ctrl_rd_valid),
+  //     .sdram_rd_granted(mem_ctrl_rd_granted),
+  //     .sdram_rd_data(mem_ctrl_rd_data),
+  //     .sdram_rd_req(mem_ctrl_rd_req),
+  //     .sdram_rd_ad(mem_ctrl_rd_ad)
+  // );
 
-// wire [15:0] mdio_data;
-// wire mdio_valid;
+  reg sdram_wr_req, sdram_ready;
+  wire sdram_wr_granted;
+  reg [18:0] sdram_wr_ad, sdram_rd_ad;
+  reg [31:0] sdram_wr_data;
+  wire [31:0] sdram_rd_data;
+  reg sdram_rd_req;
+  wire sdram_rd_valid, sdram_rd_granted;
+  sdram_ctrl #(
+      .FREQ(125_000_000)
+  ) m (
+      .clk(sysclk),
+      .rst(rst),
 
-  // mdio mdio_instance(
-  //   .clk(sysclk),
-  //   .mdc(mdc),
-  //   .en(),
-  //   .op(),
-  //   .phyad(),
-  //   .regad(),
-  //
-  //   .mdio(mdio),
-  //
-  //   .valid(),
-  //   .o_data(),
-  //   );
+      .wr_req(sdram_wr_req),
+      .wr_ad(sdram_wr_ad),
+      .wr_data(sdram_wr_data),
+      .wr_granted(sdram_wr_granted),
 
-mac mac_instance(
+      .rd_req(sdram_rd_req),
+      .rd_ad(sdram_rd_ad),
+      .rd_valid(sdram_rd_valid),
+      .rd_data(sdram_rd_data),
+      .rd_granted(sdram_rd_granted),
+
+      .boot_done(sdram_ready),
+
+      .sdram_ba(sdram_ba),
+      .sdram_we_n(sdram_we_n),
+      .sdram_cas_n(sdram_cas_n),
+      .sdram_ras_n(sdram_ras_n),
+      .sdram_clk(sdram_clk),
+      .sdram_dq(sdram_dq),
+      .sdram_addr(sdram_addr)
+  );
+
+  reg init_pulse;
+  pulse_gen pulse (
+      .clk(sysclk),
+      .sig(~rst && sdram_ready),
+      .q  (init_pulse)
+  );
+  delay #(
+      .WIDTH(1),
+      .DEPTH(10)
+  ) del (
+      .clk(sysclk),
+      .rst('0),
+      .data_in(init_pulse),
+      .data_out(spi_en)
+  );
+
+  reg spi_en, spi_data_valid;
+  reg [7:0] spi_data;
+  localparam reg [23:0] OFFSET_IN_FLASH = 'h40000;
+  spi_master spi (
+      .clk(sysclk),
+      .spi_sclk(spiclk),
+      .spi_miso(flash_miso),
+      .spi_cs(flash_cs),
+      .spi_mosi(flash_mosi),
+      .spi_clken(spi_clken),
+      .rst(rst),
+      .i_en(spi_en),
+      .i_size(NUM_BYTES),
+      .i_inst(8'h03),
+      .i_offset(OFFSET_IN_FLASH),
+      .i_addr_en('1),
+      .o_data_valid(spi_data_valid),
+      .o_data(spi_data)
+  );
+
+  reg spi_ready, flash_done;
+  reg [31:0] spi_32;
+  flash2sdram #(
+      .NUM_BYTES(NUM_BYTES)
+  ) f2s (
+      .clk(sysclk),
+      .rst(rst),
+      .readback(1'b0),
+      .spi_data_valid(spi_data_valid),
+      .spi_data(spi_data),
+      .sdram_wr_granted(sdram_wr_granted),
+      .sdram_wr_req(sdram_wr_req),
+      .sdram_wr_ad(sdram_wr_ad),
+      .sdram_wr_data(sdram_wr_data),
+      .sdram_rd_granted(1'b0),
+      .sdram_rd_req(),
+      .sdram_rd_ad(),
+      .spi_ready(),
+      .spi_32(),
+      .done(flash_done)
+  );
+
+mac #(.HTTP_ADDR_FILE(HTTP_ADDR_FILE), .HTTP_SIZE_FILE(HTTP_SIZE_FILE)) mac_instance(
   // We use base clock here instead of PHY_TXC as we purposely hold the data
   // 90 degrees before TXC edge
   .clk(sysclk),
   .clk90(sysclk90),
   .rst(rst),
   .led(),
-  .tcp_echo_en(1'b1),
+  .tcp_echo_en(1'b0),
   .uart_tx(uart_tx),
+
+  .mem_ctrl_rd_req(sdram_rd_req),
+  .mem_ctrl_rd_ad(sdram_rd_ad),
+  .mem_ctrl_rd_size(),
+  .mem_ctrl_rd_valid(sdram_rd_valid),
+  .mem_ctrl_rd_granted(sdram_rd_granted),
+  .mem_ctrl_rd_data(sdram_rd_data),
 
   .phy_txc(phy0_txc),
   .phy_txd(phy0_txd),
@@ -75,7 +191,8 @@ mac mac_instance(
   .phy_rxc(phy0_rxc)
   );
 
-  // blinky _blinky(.sysclk(sysclk), .led_n(led));
+  reg blinking;
+  blinky _blinky(.clk_25mhz(sysclk), .button(button), .led(blinking));
 
 endmodule
 

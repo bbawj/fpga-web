@@ -7,14 +7,20 @@ module tcb #(
     input rst,
     input [1:0] tcb_tx_sel,
     input to_send_wr_en,
-    input sm_tx_en,
+    input [18:0] upper_to_send_payload_addr,
+    input [15:0] upper_to_send_payload_size,
+    input [15:0] upper_to_send_payload_checksum,
     input pkt_granted,
-    input clear_ack_en,
-    input [1:0] ack_op,
-    input [1:0] seq_op,
+    // Signals from TCP state machine handler. For now only the RX path enters
+    // the TCP SM and cause updates to these signals. When tcb_rx_sel matches
+    // the ID of this TCB, the state changes.
     input [1:0] tcb_rx_sel,
     input tcp::packet_t i_pkt,
     input tcp::CONN_STATE i_state,
+    input send_ack,
+    input clear_ack_en,
+    input [1:0] ack_op,
+    input [1:0] seq_op,
 
     output pkt_pending,
     output reg [31:0] o_expected_ack,
@@ -41,7 +47,7 @@ module tcb #(
   assign wait_pkt_done = wait_pkt_count[3];
   always @(posedge clk) begin
     if (wait_pkt_done || (to_send_wr_en && tx_update_en)) wait_pkt_count <= 0;
-    else if (rx_update_en && sm_tx_en && to_send_empty) wait_pkt_count <= 1;
+    else if (rx_update_en && send_ack && to_send_empty) wait_pkt_count <= 1;
     else if (wait_pkt_count != '0) wait_pkt_count <= wait_pkt_count << 1;
   end
   always @(posedge clk) begin
@@ -110,11 +116,14 @@ module tcb #(
   always @(posedge clk) begin
     case (seq_op)
       2'b01: tcb_mem.sequence_num <= random;
+      2'b10: tcb_mem.sequence_num <= tcb_mem.sequence_num + 1;
       default: begin
         if (pkt_to_send_valid) begin
           tcb_mem.sequence_num <= to_send_sequence_num + {16'b0, to_send_payload_size};
         end else if (pseudo_pkt_to_send_valid) begin
-          tcb_mem.sequence_num <= tcb_mem.sequence_num + 1;
+          // FIXME: FIN should increment seq but then again there is no more
+          // transfers after FIN
+          // tcb_mem.sequence_num <= tcb_mem.sequence_num + 1;
         end
       end
     endcase
@@ -141,7 +150,8 @@ module tcb #(
 
   reg to_send_empty;
   logic [18:0] to_send_payload_addr;
-  logic [15:0] to_send_payload_size, to_send_payload_checksum;
+  logic [15:0] to_send_payload_size;
+  logic [15:0] to_send_payload_checksum;
   logic [31:0] to_send_sequence_num;
   logic [31:0] to_send_ack_num;
   assign pkt_pending = !to_send_empty | pseudo_pkt_pending;
@@ -155,9 +165,9 @@ module tcb #(
       .din({
         tcb_mem.sequence_num,
         tcb_mem.ack_num,
-        i_pkt.payload_size,
-        i_pkt.payload_addr,
-        i_pkt.checksum
+        upper_to_send_payload_size,
+        upper_to_send_payload_addr,
+        upper_to_send_payload_checksum
       }),
       .full(),
       .rd_en(tx_update_en && pkt_granted),

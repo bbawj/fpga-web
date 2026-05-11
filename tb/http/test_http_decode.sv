@@ -1,6 +1,6 @@
 module test_http #(
-    parameter string CAM_ADDR_FILE,
-    parameter string CAM_SIZE_FILE
+    parameter string HTTP_ADDR_FILE,
+    parameter string HTTP_SIZE_FILE
 ) (
     input clk,
     input rst,
@@ -12,8 +12,8 @@ module test_http #(
     output reg [18:0] res_payload_addr
 );
   http_decode #(
-      .CAM_ADDR_FILE(CAM_ADDR_FILE),
-      .CAM_SIZE_FILE(CAM_SIZE_FILE)
+      .HTTP_ADDR_FILE(HTTP_ADDR_FILE),
+      .HTTP_SIZE_FILE(HTTP_SIZE_FILE)
   ) http_dec (
       .clk(clk),
       .rst(rst),

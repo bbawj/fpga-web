@@ -53,7 +53,8 @@ module http_decode #(
       method_counter <= state != METHOD ? 0 : method_counter + 'd1;
 
       // For now we only support ascii [0-7] and [a-z|A-Z]
-      if (state == TARGET) key <= {1'b0, working[7:0]} - 'd48;
+      // working contains {X,X,0,\}: X = dont-care
+      if (state == TARGET) key <= {1'b0, working[15:8]} - 'd48;
 
       case (state)
         IDLE: begin

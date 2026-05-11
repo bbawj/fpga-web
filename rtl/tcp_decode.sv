@@ -108,15 +108,23 @@ module tcp_decode #(
   always @(posedge clk) begin
     if (state == IDLE) begin
       working_checksum <= '0;
-      payload_checksum <= '0;
     end  // every 2 bytes
     else if (counter != '0 && !counter[0]) begin
       working_checksum <= ones_comp(working_checksum, working[15:0]);
-      if (state == PAYLOAD) payload_checksum <= ones_comp(payload_checksum, working[15:0]);
-      // odd-sized payload, pad with zeroes for checksum calc
-      if (state == DONE && prev_state == PAYLOAD)
-        payload_checksum <= ones_comp(payload_checksum, {working[15:8], 8'b0});
     end
+  end
+
+  always @(posedge clk) begin
+    case (state)
+      IDLE: payload_checksum <= '0;
+      PAYLOAD:
+      if (counter[0] == 1'b0) payload_checksum <= ones_comp(payload_checksum, working[15:0]);
+      // odd-sized payload, pad with zeroes for checksum calc
+      DONE:
+      if (counter[0] == 1'b0)
+        payload_checksum <= ones_comp(payload_checksum, {working[15:8], 8'b0});
+      default: payload_checksum <= payload_checksum;
+    endcase
   end
 
   always @(posedge clk) begin

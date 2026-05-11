@@ -24,13 +24,7 @@ module tcp_arbiter #(
     input rst,
     // the pkt is coming from the wire
     input is_rx,
-    input tcp::packet_t packet,
-    // assert to start transferring payload data into buffer
-    input tcp_rx_payload_valid,
-    input [7:0] tcp_rx_payload_data,
-    input tcp_rx_payload_rd_en,
-    output [31:0] tcp_rx_payload_rd_data,
-    output reg tcp_rx_payload_rd_valid,
+    input tcp::packet_t rx_packet,
     // TODO; when handling more than 1 TCP, we need to identify by addr and
     // port
     // input tcp_rx_payload_peer_addr,
@@ -38,10 +32,11 @@ module tcp_arbiter #(
 
     // upper layer is trying to send a packet
     input is_tx,
-    input [31:0] to_send_peer_addr,
-    input [15:0] to_send_peer_port,
+    // handshake for "is_tx". When asserted, the sender should change state
+    output reg upper_granted,
     input [18:0] to_send_payload_addr,
     input [15:0] to_send_payload_size,
+    input [15:0] to_send_payload_checksum,
     // Enable TCP echo, which directly transitions an incoming TCP payload
     // packet to TX state. Connects the incoming EBR to outgoing EBR
     input tcp_echo_en,
@@ -51,8 +46,10 @@ module tcp_arbiter #(
     output reg send_tcp,
     output tcp::packet_t o_pkt_to_send,
     // Tells the upper layer of the network stack that there is a new TCP payload
-    // available for tcp parameters in o_tcb
-    output reg tcp_payload_valid
+    // available for tcp parameters in o_tcb. Pulse for 1 cycle
+    output reg tcp_payload_valid,
+    // Issue with payload, do not process it
+    output reg tcp_payload_err
 );
 
   // TODO: array of size MAX_CONNECTIONS
@@ -62,6 +59,7 @@ module tcp_arbiter #(
       0: o_pkt_to_send <= o_pkt_to_send;
       1: o_pkt_to_send <= tcb_pkt;
     endcase
+    // TODO: update the window based on size of tcp_incoming_buffer
     o_pkt_to_send.window <= MSS;
   end
 
@@ -74,17 +72,21 @@ module tcp_arbiter #(
   ) tcb (
       .clk(clk),
       .rst(rst),
+
       .tcb_rx_sel(tcb_rx_sel),
-      .tcb_tx_sel(tcb_tx_sel),
-      .sm_tx_en(tx_en),
-      .to_send_wr_en(to_send_wr_en),
-      .pkt_granted(pkt_granted),
+      .i_state(next_state),
+      .i_pkt(rx_packet),
       .clear_ack_en(clear_ack_en),
       .ack_op(ack_op),
       .seq_op(seq_op),
+      .send_ack(send_ack),
 
-      .i_state(next_state),
-      .i_pkt  (packet),
+      .tcb_tx_sel(tcb_tx_sel),
+      .upper_to_send_payload_addr(mux_to_send_payload_addr),
+      .upper_to_send_payload_size(mux_to_send_payload_size),
+      .upper_to_send_payload_checksum(mux_to_send_payload_checksum),
+      .to_send_wr_en(to_send_wr_en),
+      .pkt_granted(pkt_granted),
 
       .pkt_pending(pkt_pending),
       .o_state(tcb_state),
@@ -92,31 +94,18 @@ module tcp_arbiter #(
       .o_pkt(tcb_pkt)
   );
 
-  // TODO: control for correct Tket.peer_addrCB when there is more than 1
-  ebr #(
-      .SIZE(tcp::MSS / 32),
-      .RD_WIDTH(32)
-  ) tcp_incoming_buffer (
-      .wr_clk(rxc),
-      .wr_en(tcp_rx_payload_valid),
-      .wr_addr('0),
-      .wr_data(tcp_rx_payload_data),
-      .rd_clk(clk),
-      .rd_en(tcp_rx_payload_rd_en),
-      .rd_addr('0),
-      .rd_valid(tcp_rx_payload_rd_valid),
-      .rd_data(tcp_rx_payload_rd_data)
-  );
-
   typedef enum {
     GRANT_IDLE,
+    GRANT_UPPER,
     GRANT_PENDING,
     WAIT_PKT,
     SEND_PKT,
     GRANT_ECHO
   } grant_state_t;
   grant_state_t grant_state;
-  logic pkt_granted, echo_granted, echo_pending;
+  logic pkt_granted, echo_granted, echo_pending, upper_pending;
+  logic [18:0] mux_to_send_payload_addr;
+  logic [15:0] mux_to_send_payload_size, mux_to_send_payload_checksum;
   always @(posedge clk) begin
     case (grant_state)
       GRANT_IDLE: begin
@@ -129,10 +118,21 @@ module tcp_arbiter #(
           grant_state <= GRANT_PENDING;
           pkt_granted <= 1'b1;
           tcb_tx_sel  <= 1;
+        end else if (upper_pending) begin
+          grant_state <= GRANT_UPPER;
         end else if (echo_pending) begin
           grant_state  <= GRANT_ECHO;
           echo_granted <= 1'b1;
         end
+      end
+      GRANT_UPPER: begin
+        tcb_tx_sel <= 1;
+        upper_granted <= 1'b1;
+        to_send_wr_en <= 1'b1;
+        mux_to_send_payload_size <= to_send_payload_size;
+        mux_to_send_payload_addr <= to_send_payload_addr;
+        mux_to_send_payload_checksum <= to_send_payload_checksum;
+        grant_state <= GRANT_IDLE;
       end
       GRANT_PENDING: begin
         // 1 cyle stall due to latency for pkt to return after granted
@@ -150,8 +150,10 @@ module tcp_arbiter #(
       GRANT_ECHO: begin
         grant_state <= GRANT_IDLE;
         tcb_tx_sel <= tcb_rx_sel;
-        echo_granted <= 1'b0;
         to_send_wr_en <= 1'b1;
+        mux_to_send_payload_size <= rx_packet.payload_size;
+        mux_to_send_payload_addr <= rx_packet.payload_addr;
+        mux_to_send_payload_checksum <= rx_packet.checksum;
       end
       default: begin
         grant_state <= GRANT_IDLE;
@@ -159,51 +161,47 @@ module tcp_arbiter #(
     endcase
   end
 
+  // TODO: find matching TCB for TX path
+  always @(posedge clk) begin
+    upper_pending <= is_tx && grant_state != GRANT_UPPER  && rx_packet.peer_addr == tcb_pkt.peer_addr &&
+      rx_packet.peer_port == tcb_pkt.peer_port;
+  end
+
   typedef enum {
-    IDLE,
+    RX_IDLE,
     RX_PACKET,
     WAIT_SM_RX_TRANSITION,
-    TX_PACKET,
-    WAIT_SM_TX_TRANSITION
+    TX_ECHO_PACKET,
+    WAIT_ECHO
   } state_t;
-  state_t state = IDLE;
+  state_t state = RX_IDLE;
 
   always @(posedge clk) begin
-    tcp_sm_is_rx <= 0;
-    tcp_sm_is_tx <= 0;
-    case (state)
-      RX_PACKET: begin
-        tcp_sm_is_rx <= 1;
-      end
-      TX_PACKET: tcp_sm_is_tx <= 1;
-      default: begin
-      end
-    endcase
+    tcp_sm_is_rx <= state == RX_PACKET;
   end
 
   always @(posedge clk) begin
     if (rst) begin
-      state <= IDLE;
+      state <= RX_IDLE;
       tcp_payload_valid <= 0;
       tcb_rx_sel <= '0;
       rdy <= '0;
     end else begin
       case (state)
-        IDLE: begin
+        RX_IDLE: begin
           rdy <= '1;
           tcb_rx_sel <= '0;
           tcp_payload_valid <= 0;
+          tcp_payload_err <= 0;
           if (is_rx) begin
             rdy   <= 0;
             state <= RX_PACKET;
             // TODO: should block new connections if out of TCBs
-          end else if (is_tx) begin
-            state <= TX_PACKET;
           end
         end
         RX_PACKET: begin
           state <= WAIT_SM_RX_TRANSITION;
-          if (tcb_pkt.peer_port == packet.peer_port && tcb_pkt.peer_addr == packet.peer_addr) begin
+          if (tcb_pkt.peer_port == rx_packet.peer_port && tcb_pkt.peer_addr == rx_packet.peer_addr) begin
             tcb_rx_sel <= 1;
           end else begin
             // no matching TCB, create a new one
@@ -216,25 +214,27 @@ module tcp_arbiter #(
           if (sm_accept_payload) begin
             rdy <= 1;
             tcp_payload_valid <= 1'b1;
-            state <= IDLE;
+            state <= RX_IDLE;
             if (tcp_echo_en) begin
-              state <= TX_PACKET;
+              state <= TX_ECHO_PACKET;
               tcp_payload_valid <= 1'b0;
             end
           end else if (sm_reject_payload) begin
-            state <= IDLE;
-            rdy   <= 1;
+            tcp_payload_valid <= 1'b1;
+            tcp_payload_err <= 1'b1;
+            state <= RX_IDLE;
+            rdy <= 1;
           end
         end
-        TX_PACKET: begin
+        TX_ECHO_PACKET: begin
           // TODO: arbitrate writes to 'to_send' in case tx path is also
           // writing at the same time
-          state <= WAIT_SM_TX_TRANSITION;
+          state <= WAIT_ECHO;
           echo_pending <= 1'b1;
         end
-        WAIT_SM_TX_TRANSITION: begin
+        WAIT_ECHO: begin
           if (echo_granted) begin
-            state <= IDLE;
+            state <= RX_IDLE;
             rdy <= 1;
             echo_pending <= 1'b0;
           end
@@ -252,7 +252,7 @@ module tcp_arbiter #(
   // TCP_SM deems payload is bad or there is no payload
   reg sm_reject_payload;
   tcp::CONN_STATE next_state;
-  reg tx_en, clear_ack_en;
+  reg send_ack, clear_ack_en;
   logic [1:0] ack_op, seq_op;
 
   tcp_sm sm (
@@ -264,12 +264,12 @@ module tcp_arbiter #(
       .tcb_expected_ack_num(tcb_expected_ack_num),
       .is_tx(tcp_sm_is_tx),
       .is_rx(tcp_sm_is_rx),
-      .i_ack_num(packet.ack_num),
-      .i_sequence_num(packet.sequence_num),
-      .i_payload_size(packet.payload_size),
-      .i_flags(packet.flags),
+      .i_ack_num(rx_packet.ack_num),
+      .i_sequence_num(rx_packet.sequence_num),
+      .i_payload_size(rx_packet.payload_size),
+      .i_flags(rx_packet.flags),
 
-      .tx_en(tx_en),
+      .send_ack(send_ack),
 
       .next_state(next_state),
       .ack_op(ack_op),

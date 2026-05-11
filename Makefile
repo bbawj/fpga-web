@@ -53,7 +53,11 @@ SOURCES = $(SOURCEDIR)/areset.sv \
 	$(SOURCEDIR)/var_int_decoder.sv \
 	$(EXTRA_SOURCES)
 
-TOP=top
+ROOT=${CURDIR}
+DEF_HTTP_ADDR_FILE="$(ROOT)/tools/addrs.mem"
+DEF_HTTP_SIZE_FILE="$(ROOT)/tools/lengths.mem"
+
+TOP ?= top
 
 .PHONY: sdram
 sdram:
@@ -71,16 +75,20 @@ spi:
 spi_sdram:
 	$(MAKE) TOP=top_flash_sdram_debug EXTRA_SOURCES="$(SOURCEDIR)/top_flash_sdram_debug.sv" synth route flash
 
-diag: SHOW_CMD=; select -list; select top/mac_instance.tcb_sm; select -add top/mac_instance.tx.tcp_enc*; show
-
 .PHONY: diag
 diag:
+	$(MAKE) SHOW_CMD="; select -list; select '$$paramod*\top/mac_instance.http_dec.cam.cam_addr*'; show" synth
 	xdot ~/.yosys_show.dot
 
 synth: $(SOURCES)
-	$(YOSYS) -D SYNTHESIS=1 -DDEBUG=1 -p "synth_ecp5 -top $(TOP) -json top.json$(SHOW_CMD)" $^
+	$(YOSYS) -D SYNTHESIS=1 -DDEBUG=1 -p 'synth_ecp5 -top $(TOP) -json top.json$(SHOW_CMD)' $^
 
-route: synth
+.PHONY: top
+top: $(SOURCES)
+	$(YOSYS) -D SYNTHESIS=1 -DDEBUG=1 -p \
+		'chparam -set HTTP_ADDR_FILE $(DEF_HTTP_ADDR_FILE) $(TOP); chparam -set HTTP_SIZE_FILE $(DEF_HTTP_SIZE_FILE) $(TOP); synth_ecp5 -top $(TOP) -json top.json$(SHOW_CMD)' $^
+
+route:
 	$(PNR) --25k --package CABGA256 --json top.json \
 			--lpf pinout.lpf --textcfg top.config --freq 125 --detailed-timing-report
 	$(PACK) --compress --svf top.svf top.config top.bit

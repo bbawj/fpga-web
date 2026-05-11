@@ -85,8 +85,8 @@ def test_http_decode(addr_file, size_file):
         waves=True,
         verbose=True,
         includes=[f"{source_folder}/"],
-        parameters={"CAM_ADDR_FILE": f'"{addr_file_abs}"',
-                    "CAM_SIZE_FILE": f'"{size_file_abs}"', },
+        parameters={"HTTP_ADDR_FILE": f'"{addr_file_abs}"',
+                    "HTTP_SIZE_FILE": f'"{size_file_abs}"', },
         build_args=["--threads", "8", "--trace-fst",
                     "--trace-structs"] if sim == "verilator" else [],
         timescale=("1ns", "1ps"),
@@ -94,8 +94,8 @@ def test_http_decode(addr_file, size_file):
 
     runner.test(waves=True,
                 verbose=True,
-                parameters={"CAM_ADDR_FILE": f'{addr_file_abs}',
-                            "CAM_SIZE_FILE": f'{size_file_abs}'},
+                parameters={"HTTP_ADDR_FILE": f'{addr_file_abs}',
+                            "HTTP_SIZE_FILE": f'{size_file_abs}'},
                 extra_env={"ADDR_FILE": addr_file,
                            "SIZE_FILE": size_file},
                 hdl_toplevel="test_http_decode", test_module="test_http_decode")
