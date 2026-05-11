@@ -56,6 +56,7 @@ SOURCES = $(SOURCEDIR)/areset.sv \
 ROOT=${CURDIR}
 DEF_HTTP_ADDR_FILE="$(ROOT)/tools/addrs.mem"
 DEF_HTTP_SIZE_FILE="$(ROOT)/tools/lengths.mem"
+DEF_TCP_ECHO_EN ?= 0
 
 TOP ?= top
 
@@ -86,7 +87,7 @@ synth: $(SOURCES)
 .PHONY: top
 top: $(SOURCES)
 	$(YOSYS) -D SYNTHESIS=1 -DDEBUG=1 -p \
-		'chparam -set HTTP_ADDR_FILE $(DEF_HTTP_ADDR_FILE) $(TOP); chparam -set HTTP_SIZE_FILE $(DEF_HTTP_SIZE_FILE) $(TOP); synth_ecp5 -top $(TOP) -json top.json$(SHOW_CMD)' $^
+		'chparam -set TCP_ECHO_EN $(DEF_TCP_ECHO_EN) $(TOP); chparam -set HTTP_ADDR_FILE $(DEF_HTTP_ADDR_FILE) $(TOP); chparam -set HTTP_SIZE_FILE $(DEF_HTTP_SIZE_FILE) $(TOP); synth_ecp5 -top $(TOP) -json top.json$(SHOW_CMD)' $^
 
 route:
 	$(PNR) --25k --package CABGA256 --json top.json \
@@ -115,3 +116,7 @@ arp:
 .PHONY: tcp
 tcp:
 	nc 105.105.105.105 8080
+
+.PHONY: http
+http:
+	curl -vv --http1.0 http://105.105.105.105:8080/0

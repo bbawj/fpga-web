@@ -1,7 +1,9 @@
 `default_nettype	none
 module top #(
-  parameter HTTP_ADDR_FILE = "/home/bawj/projects/fpga_web/tools/addrs.mem",
-  parameter HTTP_SIZE_FILE = "/home/bawj/projects/fpga_web/tools/lengths.mem"
+  parameter TCP_ECHO_EN = 0,
+  parameter reg [23:0] OFFSET_IN_FLASH = 'h40000,
+  parameter HTTP_ADDR_FILE = "",
+  parameter HTTP_SIZE_FILE = ""
   )(
     input wire clk_25mhz,
     input wire button,
@@ -125,7 +127,6 @@ areset _areset(.clk(sysclk), .rst_n(button & pll_locked), .rst(rst));
 
   reg spi_en, spi_data_valid;
   reg [7:0] spi_data;
-  localparam reg [23:0] OFFSET_IN_FLASH = 'h40000;
   spi_master spi (
       .clk(sysclk),
       .spi_sclk(spiclk),
@@ -172,7 +173,7 @@ mac #(.HTTP_ADDR_FILE(HTTP_ADDR_FILE), .HTTP_SIZE_FILE(HTTP_SIZE_FILE)) mac_inst
   .clk90(sysclk90),
   .rst(rst),
   .led(),
-  .tcp_echo_en(1'b0),
+  .tcp_echo_en(TCP_ECHO_EN == 0 ? '0 : 1),
   .uart_tx(uart_tx),
 
   .mem_ctrl_rd_req(sdram_rd_req),
