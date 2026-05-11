@@ -46,9 +46,9 @@ module sdram_ctrl #(
 `endif
   // auto refresh can be performed once in 15.6us
 `ifdef FORMAL
-  localparam int REFRESH_CYCLE = 16000 / CYCLE_TIME_NS;
-`else
   localparam int REFRESH_CYCLE = 160 / CYCLE_TIME_NS;
+`else
+  localparam int REFRESH_CYCLE = 16000 / CYCLE_TIME_NS;
 `endif
   // t_rfc (55ns)
   localparam int ROW_CYCLE_TIME = 55 / CYCLE_TIME_NS;
