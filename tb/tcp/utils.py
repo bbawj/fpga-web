@@ -1,10 +1,11 @@
 import socket
 import cocotb
-from cocotb.clock import Clock, Timer
-from scapy.all import TCP, IP, TCP_client
-from cocotb.triggers import RisingEdge, ReadWrite
+from cocotb.clock import Timer
+from scapy.all import Raw, Ether, TCP, IP, TCP_client, Padding, RandString
+from cocotb.triggers import RisingEdge, ReadWrite, with_timeout
 from multiprocessing import Queue
 from cocotb.types import LogicArray
+from cocotbext.eth import GmiiFrame
 
 
 class TcpPacketSV:
@@ -243,8 +244,9 @@ class TcbDecoder:
 
 
 class TCP_client_sim(TCP_client):
-    def __init__(self, sock, ref, *args, **kargs):
+    def __init__(self, sock, ref, multi, *args, **kargs):
         self._sock = sock
+        self.multi = multi
         ref.append(self)
         super().__init__(*args, sock=self._sock, **kargs)
 
@@ -268,14 +270,19 @@ class TCP_client_sim(TCP_client):
         assert pkt[IP].dst == self.src
         assert TCP in pkt
         assert pkt[TCP].sport == self.dport
-        assert pkt[TCP].dport == self.sport
-        if pkt[TCP].flags == "A":
-            assert self.l4[TCP].ack == pkt[TCP].seq
-        assert self.l4[TCP].seq >= pkt[TCP].ack  # XXX: seq/ack 2^32 wrap up  # noqa: E501
-        assert ((self.l4[TCP].ack == 0) or (
-            self.sack <= pkt[TCP].seq <= self.l4[TCP].ack + pkt[TCP].window))  # no
+        # When there are multiple clients, there can be packets coming in that are destined for other instances of sim
+        if not self.multi:
+            assert pkt[TCP].dport == self.sport
+            if pkt[TCP].flags == "A":
+                assert self.l4[TCP].ack == pkt[TCP].seq
+            assert self.l4[TCP].seq >= pkt[TCP].ack  # XXX: seq/ack 2^32 wrap up  # noqa: E501
+            assert ((self.l4[TCP].ack == 0) or (
+                self.sack <= pkt[TCP].seq <= self.l4[TCP].ack + pkt[TCP].window))
+            return True
+        else:
+            assert super().master_filter(pkt) == False
         # assert super().master_filter(pkt), f"What? {self.l4.show2(dump=True)}"
-        return True
+        # return False
 
     def syn_ack_timeout(self):
         pass
@@ -379,4 +386,71 @@ class TCPSimSock:
     def __exit__(self, exc_type, exc_value, traceback):
         # type: (Optional[Type[BaseException]], Optional[BaseException], Optional[Any]) -> None  # noqa: E501
         """Close the socket"""
+        pass
+
+
+class TCPIntegrated(TCPSimSock):
+    def __init__(self, tb, echo, dst_mac, src_mac):
+        self.tb = tb
+        self.last = None
+        self.recv_count = 0
+        self.echo = echo
+        self.dst_mac = dst_mac
+        self.src_mac = src_mac
+        super().__init__(tb.dut.clk)
+
+    async def send_pkt_to_hdl(self, pkt):
+        await RisingEdge(self.tb.dut.clk)
+        await ReadWrite()
+        cocotb.log.info("packet to HDL")
+        pkt = Ether(dst=self.dst_mac, src=self.src_mac) / pkt
+        cocotb.log.info(pkt.show2(dump=True))
+        test_frame = GmiiFrame.from_payload(bytes(pkt))
+        self.last = pkt
+        await self.tb.rgmii_phy.rx.send(test_frame)
+
+    async def recv_async(self):
+        while True:
+            rx_frame = await with_timeout(self.tb.rgmii_phy.tx.recv(), 50000, "ns")
+            rx = Ether(rx_frame.get_payload())
+            cocotb.log.info("packet received from HDL")
+            self.recv_count += 1
+            cocotb.log.info(rx.show2(dump=True))
+            assert rx_frame.check_fcs()
+            actual_ip_chksum = rx[IP].chksum
+            actual_tcp_chksum = rx[TCP].chksum
+            del rx[TCP].chksum
+            del rx[IP].chksum
+            rx = rx.__class__(bytes(rx))
+            assert rx[IP].chksum == actual_ip_chksum
+            assert rx[TCP].chksum == actual_tcp_chksum
+            if self.echo:
+                if Padding in rx:
+                    del rx[Padding]
+                if Padding in self.last:
+                    del self.last[Padding]
+                assert not self.last[TCP].payload or self.last[TCP].payload == rx[TCP].payload, "Payload not echoed properly"
+            self.from_hdl.put(rx, block=False)
+
+
+class PacketGen:
+    """
+    Packets we want to send to the TCP HDL engine. Called by file descriptor named "tcp". 
+    """
+
+    def __init__(self, ip, port):
+        self.payload = Raw(RandString(size=20))
+        self.sent = 0
+        self.from_bench = Queue()
+
+    def recv(self, n=None):
+        cocotb.log.info("Packet gen triggered")
+        self.sent += 1
+        payload = self.from_bench.get_nowait()
+        return payload
+
+    def empty(self):
+        return self.from_bench.empty()
+
+    def send(self, pkt):
         pass

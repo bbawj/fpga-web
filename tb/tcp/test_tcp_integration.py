@@ -2,15 +2,13 @@ import pytest
 import cocotb
 import os
 from pathlib import Path
-from multiprocessing import Queue
-from cocotb.triggers import RisingEdge, with_timeout, ReadWrite
+from cocotb.triggers import RisingEdge, with_timeout
 from cocotb.clock import Clock, Timer
 from cocotb.utils import get_sim_steps
 from cocotb_tools.runner import get_runner
-from scapy.all import Raw, RandString, Ether, TCP, IP, Padding
-from utils import TCPSimSock, TCP_client_sim
+from scapy.all import Raw, RandString, Ether, TCP, IP
+from tcp.utils import TCPIntegrated, TCP_client_sim, PacketGen
 from cocotbext.eth import GmiiFrame, RgmiiPhy
-import logging
 
 LOC_MAC_ADDR = "DEADBEEFCAFE"
 MAC_SRC = "b025aa3306fe"
@@ -62,7 +60,7 @@ class TB:
         await RisingEdge(self.dut.clk)
 
 
-# @cocotb.test()
+@cocotb.test()
 async def tcp_integration_basic(dut):
     speed_100 = os.getenv("SPEED_100M", None)
     tb = TB(dut, speed_100 is not None)
@@ -91,72 +89,7 @@ async def tcp_integration_basic(dut):
     assert rx[TCP].dport == 5000
 
 
-class TCPIntegrated(TCPSimSock):
-    def __init__(self, tb, echo):
-        self.tb = tb
-        self.last = None
-        self.recv_count = 0
-        self.echo = echo
-        super().__init__(tb.dut.clk)
-
-    async def send_pkt_to_hdl(self, pkt):
-        await RisingEdge(self.tb.dut.clk)
-        await ReadWrite()
-        cocotb.log.info("packet to HDL")
-        pkt = Ether(dst=dst_mac, src=src_mac) / pkt
-        cocotb.log.info(pkt.show2(dump=True))
-        test_frame = GmiiFrame.from_payload(bytes(pkt))
-        self.last = pkt
-        await self.tb.rgmii_phy.rx.send(test_frame)
-
-    async def recv_async(self):
-        while True:
-            rx_frame = await with_timeout(self.tb.rgmii_phy.tx.recv(), 50000, "ns")
-            rx = Ether(rx_frame.get_payload())
-            cocotb.log.info("packet received from HDL")
-            self.recv_count += 1
-            cocotb.log.info(rx.show2(dump=True))
-            assert rx_frame.check_fcs()
-            actual_ip_chksum = rx[IP].chksum
-            actual_tcp_chksum = rx[TCP].chksum
-            del rx[TCP].chksum
-            del rx[IP].chksum
-            rx = rx.__class__(bytes(rx))
-            assert rx[IP].chksum == actual_ip_chksum
-            assert rx[TCP].chksum == actual_tcp_chksum
-            if self.echo:
-                if Padding in rx:
-                    del rx[Padding]
-                if Padding in self.last:
-                    del self.last[Padding]
-                assert not self.last[TCP].payload or self.last[TCP].payload == rx[TCP].payload, "Payload not echoed properly"
-            self.from_hdl.put(rx, block=False)
-
-
-class PacketGen:
-    """
-    Packets we want to send to the TCP HDL engine. Called by file descriptor named "tcp". 
-    """
-
-    def __init__(self, ip, port):
-        self.payload = Raw(RandString(size=20))
-        self.sent = 0
-        self.from_bench = Queue()
-
-    def recv(self, n=None):
-        cocotb.log.info("Packet gen triggered")
-        self.sent += 1
-        payload = self.from_bench.get_nowait()
-        return payload
-
-    def empty(self):
-        return self.from_bench.empty()
-
-    def send(self, pkt):
-        pass
-
-
-# @cocotb.test()
+@cocotb.test()
 async def tcp_integration_full(dut):
     speed_100 = os.getenv("SPEED_100M", None)
     tb = TB(dut, speed_100 is not None)
@@ -167,9 +100,9 @@ async def tcp_integration_full(dut):
     client_ip = "192.168.1.1"
     client_port = 5000
     gen = PacketGen(client_ip, client_port)
-    tcp = TCPIntegrated(tb, True)
+    tcp = TCPIntegrated(tb, True, dst_mac, src_mac)
     cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
-        tcp, client_ref, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
+        tcp, client_ref, False, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
     await Timer(5000, "ns")
     gen.from_bench.put(Raw(RandString(size=21)))
     await Timer(5000, "ns")
@@ -182,6 +115,39 @@ async def tcp_integration_full(dut):
     gen.from_bench.put(Raw(RandString(size=120)))
     await Timer(5000, "ns")
     client_ref[0].stop(wait=False)
+    await Timer(5000, "ns")
+    client_ref = []
+    cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
+        tcp, client_ref, False, server_ip, server_port, client_ip, client_port + 123, external_fd={"tcp": gen}))
+    await Timer(5000, "ns")
+    client_ref[0].stop(wait=False)
+    await Timer(5000, "ns")
+
+
+@cocotb.test()
+async def tcp_connect_multi(dut):
+    speed_100 = os.getenv("SPEED_100M", None)
+    tb = TB(dut, speed_100 is not None)
+
+    await tb.reset()
+    tb.dut.tcp_echo_en.value = 1
+    client_ref = []
+    client_ip = "192.168.1.1"
+    client_port = 5000
+    gen = PacketGen(client_ip, client_port)
+    tcp = TCPIntegrated(tb, True, dst_mac, src_mac)
+    cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
+        tcp, client_ref, False, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
+    await Timer(5000, "ns")
+    gen.from_bench.put(Raw(RandString(size=21)))
+    await Timer(5000, "ns")
+    # expect to receive packets for the other client so multi set to True
+    cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
+        tcp, client_ref, True, server_ip, server_port, client_ip, client_port + 123, external_fd={"tcp": gen}))
+    await Timer(5000, "ns")
+    client_ref[0].stop(wait=False)
+    await Timer(10000, "ns")
+    client_ref[1].stop(wait=False)
     await Timer(5000, "ns")
 
 
@@ -215,35 +181,6 @@ def check(b, payload):
         pkt = pkt.__class__(bytes(pkt))
 
         cocotb.log.info(pkt[TCP].chksum)
-
-
-@cocotb.test()
-async def http_integration(dut):
-    speed_100 = os.getenv("SPEED_100M", None)
-    tb = TB(dut, speed_100 is not None)
-
-    await tb.reset()
-    tb.dut.tcp_echo_en.value = 0
-    client_ref = []
-    client_ip = "192.168.1.1"
-    client_port = 5000
-    gen = PacketGen(client_ip, client_port)
-    tcp = TCPIntegrated(tb, False)
-    cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
-        tcp, client_ref, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
-    await Timer(5000, "ns")
-    assert tcp.recv_count == 1
-    gen.from_bench.put(Raw("GET /0\r\n"))
-    await Timer(20000, "ns")
-    assert tcp.recv_count == 3
-    client_ref[0].stop(wait=False)
-    await Timer(10000, "ns")
-    assert tcp.recv_count == 4
-
-
-@cocotb.test(skip=True)
-async def http_integration_stop_during_payload(dut):
-    pass
 
 
 @pytest.mark.parametrize("speed_100", [False])
@@ -288,14 +225,6 @@ def test_simple_dff_runner(speed_100):
         f"{source_folder}/tcb.sv",
         f"{source_folder}/crc32.sv"]
 
-    addr_file = "../../tools/addrs.mem"
-    size_file = "../../tools/lengths.mem"
-    content_file = "../../tools/content_hex.mem"
-    addr_file_abs = Path(addr_file).resolve()
-    size_file_abs = Path(size_file).resolve()
-    content_file_abs = Path(content_file).resolve()
-    assert addr_file_abs.exists() and size_file_abs.exists()
-
     runner = get_runner(sim)
     runner.build(
         sources=sources,
@@ -306,10 +235,6 @@ def test_simple_dff_runner(speed_100):
         verbose=True,
         defines={"SPEED_100M": "True"} if speed_100 else {},
         includes=[f"{source_folder}/"],
-        parameters={"HTTP_ADDR_FILE": f'"{addr_file_abs}"',
-                    "HTTP_SIZE_FILE": f'"{size_file_abs}"',
-                    "HTTP_CONTENT_FILE": f'"{content_file_abs}"',
-                    },
         build_args=["--threads", "8", "--trace-fst",
                     "--trace-structs", "--bbox-unsup",
                     "-y", "/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/",
@@ -321,7 +246,5 @@ def test_simple_dff_runner(speed_100):
 
     runner.test(waves=True,
                 verbose=True,
-                parameters={"HTTP_ADDR_FILE": f'"{addr_file_abs}"',
-                            "HTTP_SIZE_FILE": f'"{size_file_abs}"', },
                 extra_env={"SPEED_100M": "True"} if speed_100 else {},
                 hdl_toplevel="test_tcp_integration", test_module="test_tcp_integration")

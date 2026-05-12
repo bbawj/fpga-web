@@ -106,27 +106,28 @@ module mac_tx #(
       .sig(pkt_rd_falling),
       .q  (tcp_outgoing_buffer_start_0)
   );
-  reg [15:0] payload_counter = '0;
+  reg [15:0] payload_counter = '0, sc_payload_counter;
 
   always @(posedge sdram_clk) begin
     tcp_outgoing_buffer_start_1 <= tcp_outgoing_buffer_start_0;
     tcp_outgoing_buffer_start_rising <= ~tcp_outgoing_buffer_start_1 & tcp_outgoing_buffer_start_0;
     tcp_outgoing_wr_data <= tcp_payload_rd_data;
+    sc_payload_counter <= (pkt_payload_size >> 2) + 16'(|pkt_payload_size[1:0]);
     case (payload_buff_state)
       BUFF_STATE_IDLE: begin
         payload_counter <= '0;
         tcp_payload_rd_en <= '0;
         tcp_outgoing_wr_en <= '0;
+        tcp_outgoing_wr_ptr <= '0;
         tcp_outgoing_rdy <= 0;
         // Assume pkt.payload_size > 0
         if (tcp_outgoing_buffer_start_rising && pkt_payload_size > 0) begin
-          // FIXME: duration of rd_en should depend on payload_size also
           tcp_payload_rd_en <= 1'b1;
           tcp_payload_rd_ad <= pkt_payload_addr;
           tcp_payload_rd_size <= pkt_payload_size;
           payload_buff_state <= BUFF_STATE_START;
           // RD_WIDTH is 32 whereas WR_WIDTH is 8
-          payload_counter <= (pkt_payload_size >> 2) + ((pkt_payload_size[1:0] != '0) ? 'd1 : 'd0);
+          payload_counter <= sc_payload_counter;
         end else if (tcp_outgoing_buffer_start_rising && pkt_payload_size == 0) begin
           tcp_outgoing_rdy <= 1'b1;
         end
@@ -298,7 +299,7 @@ module mac_tx #(
         IP: begin
           if (ip_encode_done) begin
             tx_state <= TCP;
-            payload_counter_2 <= pkt.payload_size;
+            payload_counter_2 <= pkt_payload_size;
           end
         end
         TCP: begin

@@ -97,10 +97,10 @@ module mac_encode #(
   logic [15:0] ethertype;
 
   // Counter for variable-length states only
-  localparam [15:0] COUNT_MIN_PAYLOAD = 16'd46;
-  localparam [15:0] COUNT_MAX_PAYLOAD = 16'd1500;
-  localparam [15:0] IPG_COUNT = 16'd8;
-  logic [15:0] counter;
+  localparam [10:0] COUNT_MIN_PAYLOAD = 'd46;
+  localparam [10:0] COUNT_MAX_PAYLOAD = 'd1500;
+  localparam [10:0] IPG_COUNT = 'd8;
+  logic [10:0] counter;
 
   // CRC snapshot at FCS time
   logic [31:0] crc_fcs;
@@ -109,8 +109,10 @@ module mac_encode #(
   // Input latch
   // -------------------------------------------------------------------------
   always_ff @(posedge clk) begin
-    ethertype <= i_ethertype;
-    mac_dest  <= i_mac_dest;
+    if (state == S_PRE_0) begin
+      ethertype <= i_ethertype;
+      mac_dest  <= i_mac_dest;
+    end
   end
 
   // -------------------------------------------------------------------------
@@ -186,6 +188,8 @@ module mac_encode #(
       S_TYPE_1: next_state = S_PAYLOAD;
 
       S_PAYLOAD: begin
+        // FIXME: this block is slow as "en" needs to route through this large
+        // MUX. Maybe latch the size of the payload at the start?
         if (!en) next_state = (counter < COUNT_MIN_PAYLOAD - 1) ? S_PAD : S_FCS_0;
         else if (counter == COUNT_MAX_PAYLOAD - 1) next_state = S_FCS_0;
         else next_state = S_PAYLOAD;

@@ -9,17 +9,17 @@ package tcp;
     SYN = 8'h2,
     FIN = 8'h1
   } tcp_flags_t;
-  typedef enum logic [3:0] {
+  typedef enum logic [2:0] {
     LISTEN,
     SYN_RECV,
     ESTABLISHED,
     FINWAIT,
-    FINWAIT2,
-    CLOSEWAIT,
-    CLOSING,
-    LASTACK,
-    TIMEWAIT,
-    CLOSED
+    // FINWAIT2,
+    // CLOSEWAIT,
+    // CLOSING,
+    LASTACK
+    // TIMEWAIT,
+    // CLOSED
   } CONN_STATE;
   localparam MSS = 1460;
   // The number of packet payloads to keep in memory

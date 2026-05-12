@@ -5,6 +5,7 @@ module tcb #(
 ) (
     input clk,
     input rst,
+    input echo_en,
     input [1:0] tcb_tx_sel,
     input to_send_wr_en,
     input [18:0] upper_to_send_payload_addr,
@@ -21,7 +22,12 @@ module tcb #(
     input clear_ack_en,
     input [1:0] ack_op,
     input [1:0] seq_op,
-
+    // This is the main way to inform arbiter that there is a transmission
+    // required. Currently there are a few interactions:
+    // 1. If SM asserts send_ack, this triggers pkt_pending after some time
+    // 2. If arbiter wrote into the to_send FIFO
+    // 3. If sending a packet in non-echo mode, this re-asserts when
+    // internally transition into FINWAIT for HTTP1.0 closing.
     output pkt_pending,
     output reg [31:0] o_expected_ack,
 
@@ -52,7 +58,8 @@ module tcb #(
   end
   always @(posedge clk) begin
     if (tx_update_en && pkt_granted) pseudo_pkt_pending <= 1'b0;
-    else if (wait_pkt_done) pseudo_pkt_pending <= 1'b1;
+    // allow transition to FINWAIT to trigger pseudo packet
+    else if (wait_pkt_done || (pkt_to_send_valid && !echo_en)) pseudo_pkt_pending <= 1'b1;
   end
 
   always @(posedge clk) begin
@@ -64,7 +71,8 @@ module tcb #(
     o_pkt.payload_size <= pkt_to_send_valid ? to_send_payload_size : '0;
     o_pkt.payload_addr <= pkt_to_send_valid ? to_send_payload_addr : '0;
     o_pkt.checksum <= pkt_to_send_valid ? to_send_payload_checksum : '0;
-    o_pkt.flags <= pkt_to_send_valid ? o_pkt.flags | tcp::PSH : o_pkt.flags;
+    o_pkt.flags <= pkt_to_send_valid ? o_pkt.flags | tcp::PSH | (echo_en ? 0 : tcp::FIN) : o_pkt.flags;
+    // Flag update according to the SM transition
     if (rx_update_en) begin
       case (i_state)
         tcp::SYN_RECV: begin
@@ -76,11 +84,18 @@ module tcb #(
         tcp::LASTACK: begin
           o_pkt.flags <= tcp::ACK | tcp::FIN;
         end
+        // transitioned to LISTEN
+        // This happens on some error states, like wrong ACK on SYN_RECV
+        // It also happesn when closing the connection, from FINWAIT. In these
+        // cases ACK needed to be set for final ACK.
+        tcp::LISTEN: begin
+          o_pkt.flags <= tcb_mem.state == tcp::FINWAIT ? tcp::ACK : 0;
+        end
         default: begin
           o_pkt.flags <= '0;
         end
       endcase
-    end
+    end else if (tcb_mem.state == tcp::FINWAIT) o_pkt.flags <= tcp::FIN | tcp::ACK;
   end
 
   always @(posedge clk) begin
@@ -90,6 +105,9 @@ module tcb #(
       tcb_mem.peer_addr <= i_pkt.peer_addr;
       tcb_mem.peer_port <= i_pkt.peer_port;
       tcb_mem.state <= i_state;
+    end else if (pkt_to_send_valid && !echo_en) begin
+      // HTTP 1.0: we tag a FIN along with the HTTP payload
+      tcb_mem.state <= tcp::FINWAIT;
     end
   end
 
@@ -107,6 +125,7 @@ module tcb #(
   ) rng (
       .clk (clk),
       .rst (rst),
+      // TODO: create seed from some real entropy
       .seed(32'hCAFEBABE),
       .dout(random)
   );
@@ -129,23 +148,33 @@ module tcb #(
     endcase
   end
 
+  // Whenever we send a "real" packet, we add it to the to_ack FIFO
+  // TODO: should we add FIN packets also?
+  // TODO: should we add ACK packets also..?
   always @(posedge clk) begin
-    pkt_to_send_valid <= 1'b0;
+    to_ack_wr_en <= pkt_to_send_valid;
+  end
+
+  always @(posedge clk) begin
     pseudo_pkt_to_send_valid <= 1'b0;
-    to_ack_wr_en <= 1'b0;
+    pkt_to_send_valid <= 1'b0;
     if (tx_update_en && pkt_granted) begin
       if (!to_send_empty) begin
         pkt_to_send_valid <= 1'b1;
-        to_ack_wr_en <= 1'b1;
       end else pseudo_pkt_to_send_valid <= 1'b1;
     end
   end
 
   // Cache oldest expected ack number for faster checking
   always @(posedge clk) begin
-    if (to_ack_empty && to_ack_wr_en) begin
-      o_expected_ack <= tcb_mem.sequence_num - 1;
-    end
+    case (tcb_mem.state)
+      tcp::LASTACK, tcp::SYN_RECV: o_expected_ack <= tcb_mem.sequence_num + 1;
+      tcp::ESTABLISHED:
+      if (to_ack_empty && to_ack_wr_en) begin
+        o_expected_ack <= tcb_mem.sequence_num;
+      end
+      default: o_expected_ack <= 0;
+    endcase
   end
 
   reg to_send_empty;
@@ -202,8 +231,8 @@ module tcb #(
       .count()
   );
 
-  logic [31:0] target_ack_to_clear;
-  logic clear_ack_state = 0;
+  logic [31:0] target_ack_to_clear, current_ack_num;
+  logic [1:0] clear_ack_state = 0;
   always @(posedge clk) begin
     case (clear_ack_state)
       0: begin
@@ -211,18 +240,26 @@ module tcb #(
         to_ack_rd_en <= 1'b0;
         if (clear_ack_en && !to_ack_empty) begin
           target_ack_to_clear <= i_pkt.ack_num;
-          clear_ack_state <= 1'b1;
-          to_ack_rd_en <= 1'b1;
+          clear_ack_state <= 1;
+          to_ack_rd_en <= 1;
         end
       end
       1: begin
-        to_ack_rd_en <= 1'b1;
-        if (to_ack_empty || to_ack_sequence_num + {16'b0, to_ack_payload_size} == target_ack_to_clear) begin
-          clear_ack_state <= 1'b0;
-          to_ack_rd_en <= 1'b0;
+        to_ack_rd_en <= 1'b0;
+        current_ack_num <= to_ack_sequence_num + {16'b0, to_ack_payload_size};
+        clear_ack_state <= 'd2;
+      end
+      2: begin
+        if (to_ack_empty || current_ack_num == target_ack_to_clear) begin
+          clear_ack_state <= 0;
+          to_ack_rd_en <= 0;
+        end else begin
+          clear_ack_state <= '1;
+          to_ack_rd_en <= 1;
         end
       end
       default: begin
+        clear_ack_state <= 0;
       end
     endcase
   end

@@ -72,6 +72,7 @@ module tcp_arbiter #(
   ) tcb (
       .clk(clk),
       .rst(rst),
+      .echo_en(tcp_echo_en),
 
       .tcb_rx_sel(tcb_rx_sel),
       .i_state(next_state),
@@ -138,6 +139,9 @@ module tcp_arbiter #(
         // 1 cyle stall due to latency for pkt to return after granted
         pkt_granted <= 1'b0;
         grant_state <= WAIT_PKT;
+        mux_to_send_payload_size <= 0;
+        mux_to_send_payload_addr <= 0;
+        mux_to_send_payload_checksum <= 0;
       end
       WAIT_PKT: begin
         // 1 cyle stall due to latency for tcb to update with pkt_to_send
@@ -149,7 +153,7 @@ module tcp_arbiter #(
       end
       GRANT_ECHO: begin
         grant_state <= GRANT_IDLE;
-        tcb_tx_sel <= tcb_rx_sel;
+        tcb_tx_sel <= target_tcb;
         to_send_wr_en <= 1'b1;
         mux_to_send_payload_size <= rx_packet.payload_size;
         mux_to_send_payload_addr <= rx_packet.payload_addr;
@@ -176,21 +180,19 @@ module tcp_arbiter #(
   } state_t;
   state_t state = RX_IDLE;
 
-  always @(posedge clk) begin
-    tcp_sm_is_rx <= state == RX_PACKET;
-  end
-
+  assign tcb_rx_sel = (sm_reject_payload | sm_accept_payload) ? target_tcb : 0;
+  logic [1:0] target_tcb = 0;
   always @(posedge clk) begin
     if (rst) begin
       state <= RX_IDLE;
       tcp_payload_valid <= 0;
-      tcb_rx_sel <= '0;
+      target_tcb <= 0;
       rdy <= '0;
     end else begin
       case (state)
         RX_IDLE: begin
+          target_tcb <= 0;
           rdy <= '1;
-          tcb_rx_sel <= '0;
           tcp_payload_valid <= 0;
           tcp_payload_err <= 0;
           if (is_rx) begin
@@ -200,16 +202,20 @@ module tcp_arbiter #(
           end
         end
         RX_PACKET: begin
-          state <= WAIT_SM_RX_TRANSITION;
+          // TODO: choose correct target id
+          target_tcb <= 1;
           if (tcb_pkt.peer_port == rx_packet.peer_port && tcb_pkt.peer_addr == rx_packet.peer_addr) begin
-            tcb_rx_sel <= 1;
-          end else begin
+            tcp_sm_is_rx <= 1;
+            state <= WAIT_SM_RX_TRANSITION;
+          end else if (tcb_state == tcp::LISTEN) begin
             // no matching TCB, create a new one
             // for now we do no validation of other fields, assume they are 0
-            tcb_rx_sel <= 1;
-          end
+            tcp_sm_is_rx <= 1;
+            state <= WAIT_SM_RX_TRANSITION;
+          end else state <= RX_IDLE;
         end
         WAIT_SM_RX_TRANSITION: begin
+          tcp_sm_is_rx <= 0;
           // TODO: copy to SDRAM
           if (sm_accept_payload) begin
             rdy <= 1;
