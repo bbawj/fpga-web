@@ -36,7 +36,6 @@ module tcp_arbiter #(
     output reg upper_granted,
     input [18:0] to_send_payload_addr,
     input [15:0] to_send_payload_size,
-    input [15:0] to_send_payload_checksum,
     // Enable TCP echo, which directly transitions an incoming TCP payload
     // packet to TX state. Connects the incoming EBR to outgoing EBR
     input tcp_echo_en,
@@ -85,7 +84,6 @@ module tcp_arbiter #(
       .tcb_tx_sel(tcb_tx_sel),
       .upper_to_send_payload_addr(mux_to_send_payload_addr),
       .upper_to_send_payload_size(mux_to_send_payload_size),
-      .upper_to_send_payload_checksum(mux_to_send_payload_checksum),
       .to_send_wr_en(to_send_wr_en),
       .pkt_granted(pkt_granted),
 
@@ -97,6 +95,7 @@ module tcp_arbiter #(
 
   typedef enum {
     GRANT_IDLE,
+    GRANT_BREAK,
     GRANT_UPPER,
     GRANT_PENDING,
     WAIT_PKT,
@@ -105,8 +104,8 @@ module tcp_arbiter #(
   } grant_state_t;
   grant_state_t grant_state;
   logic pkt_granted, echo_granted, echo_pending, upper_pending;
-  logic [18:0] mux_to_send_payload_addr;
-  logic [15:0] mux_to_send_payload_size, mux_to_send_payload_checksum;
+  logic [18:0] mux_to_send_payload_addr, remaining_payload_addr;
+  logic [15:0] mux_to_send_payload_size, remaining_payload_size;
   always @(posedge clk) begin
     case (grant_state)
       GRANT_IDLE: begin
@@ -115,6 +114,8 @@ module tcp_arbiter #(
         pkt_granted <= '0;
         echo_granted <= '0;
         to_send_wr_en <= '0;
+        remaining_payload_size <= '0;
+        remaining_payload_addr <= '0;
         if (pkt_pending) begin
           grant_state <= GRANT_PENDING;
           pkt_granted <= 1'b1;
@@ -130,10 +131,31 @@ module tcp_arbiter #(
         tcb_tx_sel <= 1;
         upper_granted <= 1'b1;
         to_send_wr_en <= 1'b1;
-        mux_to_send_payload_size <= to_send_payload_size;
-        mux_to_send_payload_addr <= to_send_payload_addr;
-        mux_to_send_payload_checksum <= to_send_payload_checksum;
-        grant_state <= GRANT_IDLE;
+        // 1440 is chosen as a multiple of 32 that is smaller than MSS of 1460
+        if (to_send_payload_size <= 1440) begin
+          mux_to_send_payload_size <= to_send_payload_size;
+          mux_to_send_payload_addr <= to_send_payload_addr;
+          grant_state <= GRANT_IDLE;
+        end else begin
+          mux_to_send_payload_size <= 1440;
+          remaining_payload_size <= to_send_payload_size - 1440;
+          remaining_payload_addr <= to_send_payload_addr + (1440 / 4);
+          mux_to_send_payload_addr <= to_send_payload_addr;
+          grant_state <= GRANT_BREAK;
+        end
+      end
+      GRANT_BREAK: begin
+        to_send_wr_en <= 1'b1;
+        remaining_payload_size <= remaining_payload_size - 1440;
+        remaining_payload_addr <= remaining_payload_addr + (1440 / 4);
+        mux_to_send_payload_addr <= remaining_payload_addr;
+        if (remaining_payload_size <= 1440) begin
+          mux_to_send_payload_size <= remaining_payload_size;
+          grant_state <= GRANT_IDLE;
+        end else begin
+          mux_to_send_payload_size <= 1440;
+          grant_state <= GRANT_BREAK;
+        end
       end
       GRANT_PENDING: begin
         // 1 cyle stall due to latency for pkt to return after granted
@@ -141,7 +163,6 @@ module tcp_arbiter #(
         grant_state <= WAIT_PKT;
         mux_to_send_payload_size <= 0;
         mux_to_send_payload_addr <= 0;
-        mux_to_send_payload_checksum <= 0;
       end
       WAIT_PKT: begin
         // 1 cyle stall due to latency for tcb to update with pkt_to_send
@@ -157,7 +178,6 @@ module tcp_arbiter #(
         to_send_wr_en <= 1'b1;
         mux_to_send_payload_size <= rx_packet.payload_size;
         mux_to_send_payload_addr <= rx_packet.payload_addr;
-        mux_to_send_payload_checksum <= rx_packet.checksum;
       end
       default: begin
         grant_state <= GRANT_IDLE;

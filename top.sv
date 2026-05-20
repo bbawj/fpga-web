@@ -32,7 +32,7 @@ module top #(
     inout [31:0] sdram_dq,
     output wire [10:0] sdram_addr
 );
-localparam NUM_BYTES = 1000;
+localparam NUM_BYTES = 30000;
 
 // RGMII requires specific setup and hold times.
 // This is achieved with a 90 degree phase offset tx_clk relative to the

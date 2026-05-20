@@ -248,14 +248,13 @@ module mac #(
       packet.flags <= tcp_decode_flags;
       packet.ack_num <= tcp_decode_ack_num;
       packet.sequence_num <= tcp_decode_sequence_num;
-      packet.checksum <= tcp_decode_payload_checksum;
     end
   end
 
   reg tcp_arb_rdy, tcp_payload_valid, tcp_payload_err;
   wire [31:0] tcp_tx_payload_rd_data;
-  reg  [18:0] to_send_payload_addr;
-  reg [15:0] to_send_payload_size, to_send_payload_checksum;
+  reg [18:0] to_send_payload_addr;
+  reg [15:0] to_send_payload_size;
   reg arb_upper_granted;
   tcp_arbiter arb (
       .clk(clk),
@@ -269,7 +268,6 @@ module mac #(
       .upper_granted(arb_upper_granted),
       .to_send_payload_addr(to_send_payload_addr),
       .to_send_payload_size(to_send_payload_size),
-      .to_send_payload_checksum(to_send_payload_checksum),
 
       .is_rx(incoming_tcp),
       .rx_packet(packet),
@@ -350,10 +348,11 @@ module mac #(
     case (http_state)
       0: begin
         outgoing_tcp <= 1'b0;
-        if (http_res_valid && !http_res_err) begin
-          to_send_payload_addr <= http_payload_addr;
-          to_send_payload_size <= http_payload_size;
-          to_send_payload_checksum <= http_payload_checksum;
+        if (http_res_valid) begin
+          // an error in http decoding always sends the 404 page hard coded at
+          // endpoint 0.
+          to_send_payload_addr <= http_res_err ? 0 : http_payload_addr;
+          to_send_payload_size <= http_res_err ? 'h294 : http_payload_size;
           outgoing_tcp <= 1;
           http_state <= 1;
         end
@@ -374,7 +373,7 @@ module mac #(
 
   reg http_res_valid, http_res_err, http_req_payload;
   reg [18:0] http_payload_addr;
-  reg [15:0] http_payload_size, http_payload_checksum;
+  reg [15:0] http_payload_size;
   http_decode #(
       .HTTP_ADDR_FILE(HTTP_ADDR_FILE),
       .HTTP_SIZE_FILE(HTTP_SIZE_FILE)
@@ -390,7 +389,6 @@ module mac #(
       .res_valid(http_res_valid),
       .res_err(http_res_err),
       .res_payload_size(http_payload_size),
-      .res_payload_checksum(http_payload_checksum),
       .res_payload_addr(http_payload_addr)
   );
 

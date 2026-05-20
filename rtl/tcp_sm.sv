@@ -99,7 +99,9 @@ module tcp_sm (
           end else next_state <= tcp::ESTABLISHED;
         end
         tcp::LASTACK: begin
-          if (i_ack_num == tcb_expected_ack_num && (i_flags & tcp::ACK) != '0) begin
+          if ((i_flags & tcp::RST) != '0) begin
+            next_state <= tcp::LISTEN;
+          end else if (i_ack_num == tcb_expected_ack_num && (i_flags & tcp::ACK) != '0) begin
             next_state <= tcp::LISTEN;
             reject_payload <= 1'b1;
           end else if ((i_flags & tcp::FIN) != '0) begin
@@ -109,12 +111,20 @@ module tcp_sm (
         end
         tcp::FINWAIT: begin
           reject_payload <= 1'b1;
-          if ((i_flags & (tcp::ACK | tcp::FIN)) == (tcp::ACK | tcp::FIN)) begin
+          if ((i_flags & tcp::RST) != '0) begin
+            next_state <= tcp::LISTEN;
+          end else if ((i_flags & (tcp::ACK | tcp::FIN)) == (tcp::ACK | tcp::FIN)) begin
             next_state <= tcp::LISTEN;
             ack_op <= 2'b01;
             seq_op <= 2'b10;
             send_ack <= 1'b1;
-          end else next_state <= tcp::FINWAIT;
+          end else if ((i_flags & tcp::ACK) != '0) begin
+            clear_ack_en <= i_ack_num >= tcb_expected_ack_num;
+            next_state   <= tcp::FINWAIT;
+          end else begin
+            next_state <= tcp::FINWAIT;
+            // send_ack   <= 1'b1;
+          end
         end
         default: begin
         end

@@ -45,7 +45,7 @@ module mac_tx #(
       tcp_encode_ack_num <= pkt.ack_num;
       tcp_encode_flags <= pkt.flags;
       tcp_encode_window <= pkt.window;
-      tcp_encode_initial_checksum <= pkt.checksum;
+      // tcp_encode_initial_checksum <= pkt.checksum;
     end
   end
 
@@ -54,8 +54,8 @@ module mac_tx #(
   // response from our application is too quick there needs to be a buffer
   reg tcp_empty;
   fifo #(
-      .DATA_WIDTH(187),
-      .DEPTH(2)
+      .DATA_WIDTH(171),
+      .DEPTH(32)
   ) outgoing_pkt_queue (
       .clk  (clk),
       .rst  (rst),
@@ -97,6 +97,26 @@ module mac_tx #(
       .rd_valid(),
       .rd_data(tcp_outgoing_rd_data)
   );
+
+  reg [15:0] tcp_encode_initial_checksum_sc;
+  always @(posedge sdram_clk) begin
+    if (tcp_outgoing_wr_en) begin
+      // wr_data is in LE order not network transmit order
+      logic [17:0] temp;
+      temp = {2'b0, tcp_encode_initial_checksum_sc} + { 2'b0, tcp_outgoing_wr_data[7:0], tcp_outgoing_wr_data[15:8] } + {2'b0, tcp_outgoing_wr_data[23:16], tcp_outgoing_wr_data[31:24] };
+      temp = {2'b0, temp[15:0]} + {16'b0, temp[17:16]};
+      tcp_encode_initial_checksum_sc <= temp[15:0];
+    end else if (tcp_outgoing_buffer_start_rising) tcp_encode_initial_checksum_sc <= '0;
+  end
+  synchronizer #(
+      .INPUT_WIDTH(16),
+      .SYNC_WIDTH (2)
+  ) sync3 (
+      .clk(clk),
+      .sig(tcp_encode_initial_checksum_sc),
+      .q  (tcp_encode_initial_checksum)
+  );
+
   reg tcp_outgoing_buffer_start_0, tcp_outgoing_buffer_start_1, tcp_outgoing_buffer_start_rising;
   synchronizer #(
       .INPUT_WIDTH(1),
@@ -112,6 +132,7 @@ module mac_tx #(
     tcp_outgoing_buffer_start_1 <= tcp_outgoing_buffer_start_0;
     tcp_outgoing_buffer_start_rising <= ~tcp_outgoing_buffer_start_1 & tcp_outgoing_buffer_start_0;
     tcp_outgoing_wr_data <= tcp_payload_rd_data;
+    // reading in 32 bit blocks
     sc_payload_counter <= (pkt_payload_size >> 2) + 16'(|pkt_payload_size[1:0]);
     case (payload_buff_state)
       BUFF_STATE_IDLE: begin
@@ -120,16 +141,15 @@ module mac_tx #(
         tcp_outgoing_wr_en <= '0;
         tcp_outgoing_wr_ptr <= '0;
         tcp_outgoing_rdy <= 0;
+        payload_counter <= sc_payload_counter;
+        tcp_payload_rd_ad <= pkt_payload_addr;
+        tcp_payload_rd_size <= pkt_payload_size;
         // Assume pkt.payload_size > 0
         if (tcp_outgoing_buffer_start_rising && pkt_payload_size > 0) begin
-          tcp_payload_rd_en <= 1'b1;
-          tcp_payload_rd_ad <= pkt_payload_addr;
-          tcp_payload_rd_size <= pkt_payload_size;
+          tcp_payload_rd_en  <= 1'b1;
           payload_buff_state <= BUFF_STATE_START;
-          // RD_WIDTH is 32 whereas WR_WIDTH is 8
-          payload_counter <= sc_payload_counter;
         end else if (tcp_outgoing_buffer_start_rising && pkt_payload_size == 0) begin
-          tcp_outgoing_rdy <= 1'b1;
+          payload_buff_state <= BUFF_STATE_MOVE_TO_LOCAL;
         end
       end
       BUFF_STATE_START: begin

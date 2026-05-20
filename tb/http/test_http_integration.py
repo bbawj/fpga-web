@@ -57,7 +57,7 @@ class TB:
 
 
 @cocotb.test()
-async def http_integration(dut):
+async def http_integration_small_page(dut):
     tb = TB(dut)
 
     await tb.reset()
@@ -72,8 +72,29 @@ async def http_integration(dut):
     await Timer(5000, "ns")
     assert tcp.recv_count == 1
     gen.from_bench.put(Raw("GET /0\r\n"))
-    await Timer(20000, "ns")
+    await Timer(50, "us")
     assert tcp.recv_count == 5
+
+
+@cocotb.test()
+async def http_integration_big_page(dut):
+    tb = TB(dut)
+
+    await tb.reset()
+    tb.dut.tcp_echo_en.value = 0
+    client_ref = []
+    client_ip = "192.168.1.1"
+    client_port = 5000
+    gen = PacketGen(client_ip, client_port)
+    tcp = TCPIntegrated(tb, False, dst_mac, src_mac)
+    cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
+        tcp, client_ref, False, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
+    await Timer(5000, "ns")
+    assert tcp.recv_count == 1
+    gen.from_bench.put(Raw("GET /1\r\n"))
+    await Timer(300, "us")
+    assert tcp.recv_count == 19
+
 
 @cocotb.test()
 async def http_no_path(dut):
@@ -90,12 +111,8 @@ async def http_no_path(dut):
         tcp, client_ref, False, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
     await Timer(5000, "ns")
     assert tcp.recv_count == 1
-    gen.from_bench.put(Raw("GET /0\r\n"))
-    await Timer(20000, "ns")
-    cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
-        tcp, client_ref, False, server_ip, server_port, client_ip, client_port+123, external_fd={"tcp": gen}))
     gen.from_bench.put(Raw(
-    """GET /favicon.ico HTTP/1.1
+        """GET /favicon.ico HTTP/1.1
 Host: 105.105.105.105:8080
 Connection: keep-alive
 User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36
@@ -105,12 +122,45 @@ Accept-Language: en-GB,en;q=0.9
 Referer: http://105.105.105.105:8080/0
 Accept-Encoding: gzip, deflate"""))
     await Timer(20000, "ns")
-    cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
-        tcp, client_ref, False, server_ip, server_port, client_ip, client_port+124, external_fd={"tcp": gen}))
-    await Timer(5000, "ns")
-    client_ref[1].stop(wait=False)
+    client_ref[0].stop(wait=False)
     await Timer(5000, "ns")
     assert tcp.recv_count == 5
+
+
+@cocotb.test()
+async def http_no_path_during_normal(dut):
+    tb = TB(dut)
+
+    await tb.reset()
+    tb.dut.tcp_echo_en.value = 0
+    client_ref = []
+    client_ip = "192.168.1.1"
+    client_port = 5000
+    gen = PacketGen(client_ip, client_port)
+    tcp = TCPIntegrated(tb, False, dst_mac, src_mac)
+    cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
+        tcp, client_ref, False, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
+    await Timer(5000, "ns")
+    assert tcp.recv_count == 1
+    gen.from_bench.put(Raw("GET /0\r\n"))
+    await Timer(30000, "ns")
+    cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
+        tcp, client_ref, False, server_ip, server_port, client_ip, client_port+123, external_fd={"tcp": gen}))
+    await Timer(5000, "ns")
+    gen.from_bench.put(Raw(
+        """GET /favicon.ico HTTP/1.1
+Host: 105.105.105.105:8080
+Connection: keep-alive
+User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36
+Accept: image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8
+Sec-GPC: 1
+Accept-Language: en-GB,en;q=0.9
+Referer: http://105.105.105.105:8080/0
+Accept-Encoding: gzip, deflate"""))
+    await Timer(20000, "ns")
+    client_ref[1].stop(wait=False)
+    await Timer(5000, "ns")
+    assert tcp.recv_count == 10
 
 
 @cocotb.test(skip=True)
@@ -159,9 +209,9 @@ def test_http_integration():
         f"{source_folder}/tcb.sv",
         f"{source_folder}/crc32.sv"]
 
-    addr_file = "../../tools/addrs.mem"
-    size_file = "../../tools/lengths.mem"
-    content_file = "../../tools/content_hex.mem"
+    addr_file = "./addrs.mem"
+    size_file = "./lengths.mem"
+    content_file = "./content_hex.mem"
     addr_file_abs = Path(addr_file).resolve()
     size_file_abs = Path(size_file).resolve()
     content_file_abs = Path(content_file).resolve()

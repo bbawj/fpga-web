@@ -35,7 +35,7 @@ package tcp;
     logic [18:0] payload_addr;
     logic [15:0] payload_size;
     // precomputed ones complement sum of payload and IP psuedo header
-    logic [15:0] checksum;
+    // logic [15:0] checksum;
     logic [7:0]  flags;
     // Ack number expected to receive for this packet. 
     // Filled up only at the time when the packet is sent as it may change.

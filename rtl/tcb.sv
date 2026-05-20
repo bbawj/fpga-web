@@ -10,7 +10,6 @@ module tcb #(
     input to_send_wr_en,
     input [18:0] upper_to_send_payload_addr,
     input [15:0] upper_to_send_payload_size,
-    input [15:0] upper_to_send_payload_checksum,
     input pkt_granted,
     // Signals from TCP state machine handler. For now only the RX path enters
     // the TCP SM and cause updates to these signals. When tcb_rx_sel matches
@@ -70,8 +69,7 @@ module tcb #(
     o_pkt.sequence_num <= tcb_mem.sequence_num;
     o_pkt.payload_size <= pkt_to_send_valid ? to_send_payload_size : '0;
     o_pkt.payload_addr <= pkt_to_send_valid ? to_send_payload_addr : '0;
-    o_pkt.checksum <= pkt_to_send_valid ? to_send_payload_checksum : '0;
-    o_pkt.flags <= pkt_to_send_valid ? o_pkt.flags | tcp::PSH | (echo_en ? 0 : tcp::FIN) : o_pkt.flags;
+    o_pkt.flags <= pkt_to_send_valid ? o_pkt.flags | tcp::PSH : o_pkt.flags;
     // Flag update according to the SM transition
     if (rx_update_en) begin
       case (i_state)
@@ -105,7 +103,7 @@ module tcb #(
       tcb_mem.peer_addr <= i_pkt.peer_addr;
       tcb_mem.peer_port <= i_pkt.peer_port;
       tcb_mem.state <= i_state;
-    end else if (pkt_to_send_valid && !echo_en) begin
+    end else if (pkt_to_send_valid && !echo_en && to_send_empty) begin
       // HTTP 1.0: we tag a FIN along with the HTTP payload
       tcb_mem.state <= tcp::FINWAIT;
     end
@@ -138,7 +136,7 @@ module tcb #(
       2'b10: tcb_mem.sequence_num <= tcb_mem.sequence_num + 1;
       default: begin
         if (pkt_to_send_valid) begin
-          tcb_mem.sequence_num <= to_send_sequence_num + {16'b0, to_send_payload_size};
+          tcb_mem.sequence_num <= tcb_mem.sequence_num + {16'b0, to_send_payload_size};
         end else if (pseudo_pkt_to_send_valid) begin
           // FIXME: FIN should increment seq but then again there is no more
           // transfers after FIN
@@ -173,20 +171,19 @@ module tcb #(
       if (to_ack_empty && to_ack_wr_en) begin
         o_expected_ack <= tcb_mem.sequence_num;
       end
-      default: o_expected_ack <= 0;
+      default: o_expected_ack <= o_expected_ack;
     endcase
   end
 
   reg to_send_empty;
   logic [18:0] to_send_payload_addr;
   logic [15:0] to_send_payload_size;
-  logic [15:0] to_send_payload_checksum;
   logic [31:0] to_send_sequence_num;
   logic [31:0] to_send_ack_num;
   assign pkt_pending = !to_send_empty | pseudo_pkt_pending;
   fifo #(
-      .DATA_WIDTH(115),
-      .DEPTH(2)
+      .DATA_WIDTH(99),
+      .DEPTH(32)
   ) to_send (
       .clk(clk),
       .rst(rst),
@@ -195,18 +192,11 @@ module tcb #(
         tcb_mem.sequence_num,
         tcb_mem.ack_num,
         upper_to_send_payload_size,
-        upper_to_send_payload_addr,
-        upper_to_send_payload_checksum
+        upper_to_send_payload_addr
       }),
       .full(),
       .rd_en(tx_update_en && pkt_granted),
-      .dout({
-        to_send_sequence_num,
-        to_send_ack_num,
-        to_send_payload_size,
-        to_send_payload_addr,
-        to_send_payload_checksum
-      }),
+      .dout({to_send_sequence_num, to_send_ack_num, to_send_payload_size, to_send_payload_addr}),
       .empty(to_send_empty),
       .count()
   );
@@ -218,7 +208,7 @@ module tcb #(
   logic [31:0] to_ack_ack_num;
   fifo #(
       .DATA_WIDTH(99),
-      .DEPTH(2)
+      .DEPTH(32)
   ) to_ack (
       .clk  (clk),
       .rst  (rst),
@@ -263,5 +253,8 @@ module tcb #(
       end
     endcase
   end
+
   // TODO: Re-transmission timer that moves packets from to_ack to to_send
+  always @(posedge clk) begin
+  end
 endmodule
