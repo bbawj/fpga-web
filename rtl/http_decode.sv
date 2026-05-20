@@ -20,7 +20,6 @@ module http_decode #(
     output reg res_valid,
     output reg res_err,
     output reg [15:0] res_payload_size,
-    output reg [15:0] res_payload_checksum,
     output reg [18:0] res_payload_addr
 );
 
@@ -54,7 +53,9 @@ module http_decode #(
 
       // For now we only support ascii [0-7] and [a-z|A-Z]
       // working contains {X,X,0,\}: X = dont-care
-      if (state == TARGET) key <= {1'b0, working[15:8]} - 'd48;
+      // -48: convert to ascii
+      // +1: 0 index is 404
+      if (state == TARGET) key <= {1'b0, working[15:8]} - 'd47;
 
       case (state)
         IDLE: begin
@@ -74,8 +75,8 @@ module http_decode #(
           payload_rd_en <= 0;
         end
         ABORT: begin
-          res_valid <= 1'b1;
-          res_err <= 1'b1;
+          res_valid <= 1'b0;
+          res_err <= 1'b0;
           payload_rd_en <= 0;
         end
         default: begin
@@ -121,6 +122,6 @@ module http_decode #(
       .key(key),
       .content_addr(res_payload_addr),
       .content_size(res_payload_size),
-      .content_checksum(res_payload_checksum)
+      .content_checksum()
   );
 endmodule
