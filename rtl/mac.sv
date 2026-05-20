@@ -237,19 +237,49 @@ module mac #(
       .err (tcp_decode_err)
   );
 
-  reg incoming_tcp;
+  reg incoming_tcp, tcp_decode_done_stretched, tcp_decode_done_sync, tcp_decode_done_q1;
   always @(posedge clk) begin
-    incoming_tcp <= tcp_decode_done;
-    if (tcp_decode_done) begin
-      packet.peer_addr <= ip_sa;
-      packet.peer_port <= tcp_decode_peer_port;
-      packet.payload_addr <= '0;
-      packet.payload_size <= tcp_decode_payload_size;
-      packet.flags <= tcp_decode_flags;
-      packet.ack_num <= tcp_decode_ack_num;
-      packet.sequence_num <= tcp_decode_sequence_num;
-    end
+    tcp_decode_done_q1 <= tcp_decode_done_sync;
+    incoming_tcp <= !tcp_decode_done_q1 && tcp_decode_done_sync;
   end
+  pulse_stretcher tcpdecodedonestretcher (
+      .clk(phy_rxc),
+      .d  (tcp_decode_done),
+      .q  (tcp_decode_done_stretched)
+  );
+  synchronizer sync2 (
+      .clk(clk),
+      .sig(tcp_decode_done_stretched),
+      .q  (tcp_decode_done_sync)
+  );
+  async_fifo_2deep #(
+      .DATA_WIDTH(136)
+  ) sync_fifo (
+      .wr_clk(phy_rxc),
+      .wr_rst(1'b0),
+      .wr_en(tcp_decode_done),
+      .wr_data({
+        ip_sa,
+        tcp_decode_peer_port,
+        tcp_decode_payload_size,
+        tcp_decode_flags,
+        tcp_decode_ack_num,
+        tcp_decode_sequence_num
+      }),
+      .wr_full(),
+      .rd_clk(clk),
+      .rd_rst(1'b0),
+      .rd_en(incoming_tcp),
+      .rd_empty(),
+      .rd_data({
+        packet.peer_addr,
+        packet.peer_port,
+        packet.payload_size,
+        packet.flags,
+        packet.ack_num,
+        packet.sequence_num
+      })
+  );
 
   reg tcp_arb_rdy, tcp_payload_valid, tcp_payload_err;
   wire [31:0] tcp_tx_payload_rd_data;
