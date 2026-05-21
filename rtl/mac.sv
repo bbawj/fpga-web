@@ -116,6 +116,8 @@ module mac #(
       .sdram_clk(clk),
       .rst(rst),
       .i_mac_da(mac_sa),
+      .tcp_echo_en(tcp_echo_en),
+      .tcp_echo_checksum(tcp_decode_payload_checksum_sync),
 
       .send_arp(send_arp),
       .i_arp_encode_tha(arp_encode_tha),
@@ -210,7 +212,11 @@ module mac #(
   reg [15:0] tcp_decode_peer_port;
   reg [31:0] tcp_decode_sequence_num, tcp_decode_ack_num;
   reg [7:0] tcp_decode_flags;
-  reg [15:0] tcp_decode_payload_size, tcp_decode_window, tcp_decode_payload_checksum;
+  reg [15:0]
+      tcp_decode_payload_size,
+      tcp_decode_window,
+      tcp_decode_payload_checksum,
+      tcp_decode_payload_checksum_sync;
   tcp_decode tcp_dec (
       .clk(phy_rxc),
       .rst(rst),
@@ -253,7 +259,7 @@ module mac #(
       .q  (tcp_decode_done_sync)
   );
   async_fifo_2deep #(
-      .DATA_WIDTH(136)
+      .DATA_WIDTH(152)
   ) sync_fifo (
       .wr_clk(phy_rxc),
       .wr_rst(1'b0),
@@ -264,7 +270,8 @@ module mac #(
         tcp_decode_payload_size,
         tcp_decode_flags,
         tcp_decode_ack_num,
-        tcp_decode_sequence_num
+        tcp_decode_sequence_num,
+        tcp_decode_payload_checksum
       }),
       .wr_full(),
       .rd_clk(clk),
@@ -277,7 +284,8 @@ module mac #(
         packet.payload_size,
         packet.flags,
         packet.ack_num,
-        packet.sequence_num
+        packet.sequence_num,
+        tcp_decode_payload_checksum_sync
       })
   );
 
