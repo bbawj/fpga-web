@@ -30,8 +30,25 @@ module tcp_sm (
     output reg accept_payload
 );
 
+  reg valid = 0;
+  reg i_flags_has_fin, i_flags_has_ack, i_flags_has_rst, i_flags_is_syn;
+  reg seq_match, ack_match, ack_ge, has_payload;
   always @(posedge clk) begin
-    if (rst || !is_rx) begin
+    valid <= is_rx;
+    if (is_rx) begin
+      i_flags_has_fin <= (i_flags & tcp::FIN) != '0;
+      i_flags_has_ack <= (i_flags & tcp::ACK) != '0;
+      i_flags_has_rst <= (i_flags & tcp::RST) != '0;
+      i_flags_is_syn  <= i_flags == tcp::SYN;
+      seq_match       <= i_sequence_num == tcb_ack_num;
+      ack_match       <= tcb_expected_ack_num == i_ack_num;
+      ack_ge          <= i_ack_num >= tcb_expected_ack_num;
+      has_payload     <= i_payload_size > 0;
+    end
+  end
+
+  always @(posedge clk) begin
+    if (rst || !valid) begin
       send_ack <= 1'b0;
       reject_payload <= 0;
       accept_payload <= 0;
@@ -49,7 +66,7 @@ module tcp_sm (
       case (tcb_state)
         tcp::LISTEN: begin
           next_state <= tcp::LISTEN;
-          if (i_flags == tcp::SYN) begin
+          if (i_flags_is_syn) begin
             ack_op <= 2'b01;
             seq_op <= 2'b01;
             next_state <= tcp::SYN_RECV;
@@ -59,29 +76,28 @@ module tcp_sm (
         end
         tcp::SYN_RECV: begin
           reject_payload <= 1'b1;
-          if (((i_flags & tcp::ACK) != '0) && (tcb_ack_num == i_sequence_num) &&
-            tcb_expected_ack_num == i_ack_num) begin
+          if (i_flags_has_ack && seq_match && ack_match) begin
             next_state <= tcp::ESTABLISHED;
             seq_op <= 2'b10;
+            clear_ack_en <= 1'b1;
           end else next_state <= tcp::LISTEN;
         end
         tcp::ESTABLISHED: begin
-          if ((i_flags & tcp::ACK) != '0) begin
+          if (i_flags_has_ack) begin
             // find a match
             // Ack came for one of to_be_ack, due to cumulative ack, we can
             // safely deallocate all smaller acks
             clear_ack_en <= i_ack_num >= tcb_expected_ack_num;
           end
 
-          if (i_payload_size > 0) begin
-            if (i_sequence_num == tcb_ack_num) begin
+          if (has_payload) begin
+            if (seq_match) begin
               // received sequence number is what we expect the next byte to be
               accept_payload <= 1'b1;
               ack_op <= 2'b10;
               send_ack <= 1'b1;
-            end else if (i_sequence_num > tcb_ack_num) begin
-              // received sequence number is larger than our last acknowledged
-              // packet, means that we lost a packet/out of order
+            end else begin
+              // simply do not accept out of order packets right now
               $display("ERROR: incoming seq > current ack");
               reject_payload <= 1'b1;
             end
@@ -90,35 +106,35 @@ module tcp_sm (
             reject_payload <= 1'b1;
           end
 
-          if ((i_flags & tcp::FIN) != '0) begin
+          if (i_flags_has_fin) begin
             ack_op <= 2'b01;
             next_state <= tcp::LASTACK;
             send_ack <= 1'b1;
-          end else if ((i_flags & tcp::RST) != '0) begin
+          end else if (i_flags_has_rst) begin
             next_state <= tcp::LISTEN;
           end else next_state <= tcp::ESTABLISHED;
         end
         tcp::LASTACK: begin
-          if ((i_flags & tcp::RST) != '0) begin
+          if (i_flags_has_rst) begin
             next_state <= tcp::LISTEN;
-          end else if (i_ack_num == tcb_expected_ack_num && (i_flags & tcp::ACK) != '0) begin
+          end else if (ack_match && i_flags_has_ack) begin
             next_state <= tcp::LISTEN;
             reject_payload <= 1'b1;
-          end else if ((i_flags & tcp::FIN) != '0) begin
+          end else if (i_flags_has_fin) begin
             next_state <= tcp::LASTACK;
             send_ack   <= 1'b1;
           end
         end
         tcp::FINWAIT: begin
           reject_payload <= 1'b1;
-          if ((i_flags & tcp::RST) != '0) begin
+          if (i_flags_has_rst) begin
             next_state <= tcp::LISTEN;
-          end else if ((i_flags & (tcp::ACK | tcp::FIN)) == (tcp::ACK | tcp::FIN)) begin
+          end else if (i_flags_has_fin && i_flags_has_ack) begin
             next_state <= tcp::LISTEN;
             ack_op <= 2'b01;
             seq_op <= 2'b10;
             send_ack <= 1'b1;
-          end else if ((i_flags & tcp::ACK) != '0) begin
+          end else if (i_flags_has_ack) begin
             clear_ack_en <= i_ack_num >= tcb_expected_ack_num;
             next_state   <= tcp::FINWAIT;
           end else begin

@@ -217,12 +217,16 @@ module mac_encode #(
   // Output + CRC input logic
   // -------------------------------------------------------------------------
   always_ff @(posedge clk) begin
+    if (state == S_SRC_5) send_next <= 1;
+    else if (state == S_PAD || state == S_FCS_0) send_next <= 0;
+  end
+
+  always_ff @(posedge clk) begin
     if (rst) begin
-      mac_txd   <= '0;
-      mac_txen  <= 1'b0;
-      send_next <= 1'b0;
-      ready     <= 1'b1;
-      crc_din   <= '0;
+      mac_txd  <= '0;
+      mac_txen <= 1'b0;
+      ready    <= 1'b1;
+      crc_din  <= '0;
     end else begin
 
       mac_txen <= (state != S_IDLE) && (state != S_IPG);
@@ -286,9 +290,8 @@ module mac_encode #(
         end
 
         S_TYPE_0: begin
-          mac_txd   <= ethertype[15:8];
-          crc_din   <= ethertype[15:8];
-          send_next <= 1'b1;
+          mac_txd <= ethertype[15:8];
+          crc_din <= ethertype[15:8];
         end
         S_TYPE_1: begin
           mac_txd <= ethertype[7:0];
@@ -301,15 +304,13 @@ module mac_encode #(
         end
 
         S_PAD: begin
-          send_next <= 1'b0;
-          mac_txd   <= '0;
-          crc_din   <= '0;
+          mac_txd <= '0;
+          crc_din <= '0;
         end
 
         // FCS bytes are ~CRC LSB-first
         S_FCS_0: begin
-          send_next <= 1'b0;
-          mac_txd   <= ~crc_out[7:0];
+          mac_txd <= ~crc_out[7:0];
         end
         S_FCS_1: mac_txd <= ~crc_out[15:8];
         S_FCS_2: mac_txd <= ~crc_out[23:16];

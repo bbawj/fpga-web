@@ -12,12 +12,12 @@ module fifo #(
     // Write interface
     input wire wr_en,
     input wire [DATA_WIDTH-1:0] din,
-    output wire full,
+    output reg full,
 
     // Read interface  
     input rd_en,
     output reg [DATA_WIDTH-1:0] dout,
-    output wire empty,
+    output reg empty,
 
     // Status
     output wire [ADDR_WIDTH:0] count
@@ -77,10 +77,41 @@ module fifo #(
   endgenerate
   // additional bit here allows to differentiate between full and empty
   reg [ADDR_WIDTH:0] wr_ptr = '0, rd_ptr = '0;
-
+  reg [ADDR_WIDTH:0] next_wr_ptr = '0;
+  assign next_wr_ptr = wr_ptr + 1;
   // Status flags
-  assign full  = (wr_ptr - rd_ptr) == DEPTH;
-  assign empty = (wr_ptr == rd_ptr);
+  // assign full = (wr_ptr - rd_ptr) == DEPTH;
+  always @(posedge clk) begin
+    if (rst) begin
+      full  <= 0;
+      empty <= 1;
+    end else begin
+      casez ({
+        rd_en, wr_en, full, empty
+      })
+        'b10?0: begin
+          full  <= 0;
+          empty <= (rd_ptr + 1) == wr_ptr;
+        end
+        'b010?: begin
+          full  <= (next_wr_ptr[ADDR_WIDTH] != rd_ptr[ADDR_WIDTH] && next_wr_ptr[ADDR_WIDTH-1:0] == rd_ptr[ADDR_WIDTH-1:0]);
+          empty <= 0;
+        end
+        // wr and rd at the same time
+        'b11?0: begin
+          full  <= full;
+          empty <= 0;
+        end
+        'b11?1: begin
+          full  <= 0;
+          empty <= 0;
+        end
+        default: begin
+        end
+      endcase
+    end
+  end
+  // assign empty = (wr_ptr == rd_ptr);
   assign count = wr_ptr - rd_ptr;
 
 `ifdef FORMAL

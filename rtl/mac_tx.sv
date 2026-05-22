@@ -54,14 +54,17 @@ module mac_tx #(
   // Handle up to 2 in flight outgoing packets since we do not implement any
   // delayed ACK, every received packet will have 1 ACK reply and if the
   // response from our application is too quick there needs to be a buffer
-  reg tcp_empty;
+  reg tcp_empty, send_tcp_q;
+  always @(posedge clk) begin
+    send_tcp_q <= send_tcp;
+  end
   fifo #(
       .DATA_WIDTH(171),
       .DEPTH(32)
   ) outgoing_pkt_queue (
       .clk  (clk),
       .rst  (rst),
-      .wr_en(send_tcp),
+      .wr_en(send_tcp_q),
       .din  (pkt_external),
       .full (),
       .rd_en(pkt_rd_en),
@@ -100,14 +103,19 @@ module mac_tx #(
       .rd_data(tcp_outgoing_rd_data)
   );
 
-  reg [15:0] tcp_encode_initial_checksum_sc;
+  reg [15:0] tcp_encode_initial_checksum_sc = '0;
+  reg [17:0] checksum_stage1 = '0;
+  reg checksum_stage_valid;
   always @(posedge sdram_clk) begin
+    checksum_stage_valid <= tcp_outgoing_wr_en;
     if (tcp_outgoing_wr_en) begin
       // wr_data is in LE order not network transmit order
-      logic [17:0] temp;
-      temp = {2'b0, tcp_encode_initial_checksum_sc} + { 2'b0, tcp_outgoing_wr_data[7:0], tcp_outgoing_wr_data[15:8] } + {2'b0, tcp_outgoing_wr_data[23:16], tcp_outgoing_wr_data[31:24] };
-      temp = {2'b0, temp[15:0]} + {16'b0, temp[17:16]};
-      tcp_encode_initial_checksum_sc <= temp[15:0];
+      checksum_stage1 <= {2'b0, tcp_encode_initial_checksum_sc} + { 2'b0, tcp_outgoing_wr_data[7:0], tcp_outgoing_wr_data[15:8] } + {2'b0, tcp_outgoing_wr_data[23:16], tcp_outgoing_wr_data[31:24] };
+    end else if (tcp_outgoing_buffer_start_rising) checksum_stage1 <= '0;
+  end
+  always @(posedge sdram_clk) begin
+    if (checksum_stage_valid) begin
+      tcp_encode_initial_checksum_sc <= checksum_stage1[15:0] + {14'b0, checksum_stage1[17:16]};
     end else if (tcp_outgoing_buffer_start_rising) tcp_encode_initial_checksum_sc <= '0;
   end
   synchronizer #(
@@ -345,16 +353,15 @@ module mac_tx #(
     end
   end
 
-  always_comb begin
-    ip_encode_en  = '0;
-    tcp_encode_en = '0;
-    arp_encode_en = '0;
-    case (tx_state)
-      ARP: arp_encode_en = mac_send_payload;
-      IP: ip_encode_en = mac_send_payload;
-      TCP: tcp_encode_en = mac_send_payload;
-      default: arp_encode_en = 0;
-    endcase
+  always @(posedge clk) begin
+    ip_encode_en  <= mac_send_payload && tx_state == IP;
+    tcp_encode_en <= mac_send_payload && (tx_state == TCP | ip_encode_done);
+    arp_encode_en <= mac_send_payload && tx_state == ARP;
+    // case (tx_state)
+    //   ARP: arp_encode_en <= mac_send_payload;
+    //   IP:  ip_encode_en <= mac_send_payload;
+    //   TCP: tcp_encode_en <= mac_send_payload;
+    // endcase
   end
 
   always @(posedge clk) begin
