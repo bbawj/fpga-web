@@ -1,6 +1,7 @@
 import socket
 import cocotb
 from cocotb.clock import Timer
+import asyncio
 from scapy.all import Raw, Ether, TCP, IP, TCP_client, Padding, RandString
 from cocotb.triggers import RisingEdge, ReadWrite, with_timeout
 from multiprocessing import Queue
@@ -261,8 +262,12 @@ class TCP_client_sim(TCP_client):
                 pass
         ready = Dummy()
         args = (ready,) + (args)
-        super().run(wait=False)
-        super()._do_control(*args, **kargs)
+        try:
+            super().run(wait=False)
+            super()._do_control(*args, **kargs)
+        # block asyncio cancelled from propagating as cocotb absorbs the error and reports it as a failed test
+        except asyncio.CancelledError:
+            pass
 
     def master_filter(self, pkt):
         assert IP in pkt
@@ -286,6 +291,17 @@ class TCP_client_sim(TCP_client):
 
     def syn_ack_timeout(self):
         pass
+
+
+class PayloadLossyClient(TCP_client_sim):
+    """
+    Only drops packets with payload
+    """
+
+    def master_filter(self, pkt):
+        if len(pkt[TCP].payload) > 0:
+            return False
+        return super().master_filter(pkt)
 
 
 class TCPSimSock:
@@ -390,13 +406,14 @@ class TCPSimSock:
 
 
 class TCPIntegrated(TCPSimSock):
-    def __init__(self, tb, echo, dst_mac, src_mac):
+    def __init__(self, tb, echo, dst_mac, src_mac, dont_read=False):
         self.tb = tb
         self.last = None
         self.recv_count = 0
         self.echo = echo
         self.dst_mac = dst_mac
         self.src_mac = src_mac
+        self.dont_read = dont_read
         super().__init__(tb.dut.clk)
 
     async def send_pkt_to_hdl(self, pkt):
@@ -411,6 +428,9 @@ class TCPIntegrated(TCPSimSock):
 
     async def recv_async(self):
         while True:
+            if self.dont_read:
+                await Timer(10, "ns")
+                continue
             rx_frame = await with_timeout(self.tb.rgmii_phy.tx.recv(), 50000, "ns")
             rx = Ether(rx_frame.get_payload())
             cocotb.log.info("packet received from HDL")

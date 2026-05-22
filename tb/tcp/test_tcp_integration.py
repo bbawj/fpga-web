@@ -7,7 +7,7 @@ from cocotb.clock import Clock, Timer
 from cocotb.utils import get_sim_steps
 from cocotb_tools.runner import get_runner
 from scapy.all import Raw, RandString, Ether, TCP, IP
-from tcp.utils import TCPIntegrated, TCP_client_sim, PacketGen
+from tcp.utils import TCPIntegrated, TCP_client_sim, PacketGen, PayloadLossyClient
 from cocotbext.eth import GmiiFrame, RgmiiPhy
 
 LOC_MAC_ADDR = "DEADBEEFCAFE"
@@ -136,6 +136,7 @@ async def tcp_connect_multi(dut):
     client_port = 5000
     gen = PacketGen(client_ip, client_port)
     tcp = TCPIntegrated(tb, True, dst_mac, src_mac)
+    tcp2 = TCPIntegrated(tb, True, dst_mac, src_mac, dont_read=True)
     cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
         tcp, client_ref, False, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
     await Timer(5000, "ns")
@@ -143,12 +144,34 @@ async def tcp_connect_multi(dut):
     await Timer(5000, "ns")
     # expect to receive packets for the other client so multi set to True
     cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
-        tcp, client_ref, True, server_ip, server_port, client_ip, client_port + 123, external_fd={"tcp": gen}))
+        tcp2, client_ref, True, server_ip, server_port, client_ip, client_port + 123, external_fd={"tcp": gen}))
     await Timer(5000, "ns")
     client_ref[0].stop(wait=False)
     await Timer(10000, "ns")
-    client_ref[1].stop(wait=False)
+    client_ref[1].forcestop(wait=False)
     await Timer(5000, "ns")
+
+
+@cocotb.test()
+async def tcp_lossy(dut):
+    speed_100 = os.getenv("SPEED_100M", None)
+    tb = TB(dut, speed_100 is not None)
+
+    await tb.reset()
+    tb.dut.tcp_echo_en.value = 1
+    client_ref = []
+    client_ip = "192.168.1.1"
+    client_port = 5000
+    gen = PacketGen(client_ip, client_port)
+    tcp = TCPIntegrated(tb, True, dst_mac, src_mac)
+    cocotb.start_soon(cocotb.task.bridge(PayloadLossyClient)(
+        tcp, client_ref, False, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
+    await Timer(5000, "ns")
+    gen.from_bench.put(Raw(RandString(size=21)))
+    await Timer(25, "us")
+    assert tcp.recv_count == 4
+    client_ref[0].stop(wait=False)
+    await Timer(10000, "ns")
 
 
 # @cocotb.test()

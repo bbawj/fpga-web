@@ -206,6 +206,7 @@ def test_http_integration():
         f"{source_folder}/delay.sv",
         f"{source_folder}/fifo.sv",
         f"{source_folder}/pulse_stretcher.sv",
+        f"{source_folder}/to_ack_fifo.sv",
         f"{source_folder}/tcb.sv",
         f"{source_folder}/crc32.sv"]
 

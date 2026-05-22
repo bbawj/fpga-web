@@ -48,10 +48,19 @@ module ebr #(
       rd_valid <= rd_en;
     end
   end else begin
-    reg rd_valid_q;
-    always @(posedge rd_clk) begin
-      rd_valid_q <= rd_en;
-      rd_valid   <= rd_valid_q;
+    if (USE_BLOCKRAM == 0) begin
+      reg rd_valid_q;
+      always @(posedge rd_clk) begin
+        rd_valid_q <= rd_en;
+        rd_valid   <= rd_valid_q;
+      end
+    end else begin
+      reg rd_valid_q, rd_valid_q2;
+      always @(posedge rd_clk) begin
+        rd_valid_q <= rd_en;
+        rd_valid_q2 <= rd_valid_q;
+        rd_valid <= rd_valid_q2;
+      end
     end
   end
 

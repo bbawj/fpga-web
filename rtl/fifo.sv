@@ -3,7 +3,8 @@ module fifo #(
     parameter DEPTH = 512,
     parameter ADDR_WIDTH = $clog2(DEPTH),
     // whether to use block RAM, not supported for all data & addr widths
-    parameter EBR = 0
+    parameter EBR = 0,
+    parameter LOOKAHEAD = 0
 ) (
     input wire clk,
     input wire rst,
@@ -21,6 +22,7 @@ module fifo #(
     // Status
     output wire [ADDR_WIDTH:0] count
 );
+  if (EBR && LOOKAHEAD) $error("only non block RAM can support lookahead FIFO");
 
   always @(posedge clk) begin
     if (rst) wr_ptr <= '0;
@@ -44,8 +46,15 @@ module fifo #(
         if (wr_en && !full) begin
           mem[wr_ptr[ADDR_WIDTH-1:0]] <= din;
         end
-        if (rd_en && !empty) begin
-          dout <= mem[rd_ptr[ADDR_WIDTH-1:0]];
+      end
+
+      if (LOOKAHEAD) begin : g_lookahead
+        assign dout = mem[rd_ptr[ADDR_WIDTH-1:0]];
+      end else begin : g_standard
+        always @(posedge clk) begin
+          if (rd_en && !empty) begin
+            dout <= mem[rd_ptr[ADDR_WIDTH-1:0]];
+          end
         end
       end
     end else begin
