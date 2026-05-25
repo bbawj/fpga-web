@@ -229,6 +229,19 @@ module tcp_arbiter #(
   } state_t;
   state_t state = RX_IDLE;
 
+  always @(posedge clk) begin
+    if (sm_accept_payload || sm_reject_payload) begin
+      next_state <= sm_next_state;
+      send_ack <= sm_send_ack;
+      ack_op <= sm_ack_op;
+      seq_op <= sm_seq_op;
+      clear_ack_en <= sm_clear_ack_en;
+      tcb_rx_sel <= target_tcb;
+    end else begin
+      tcb_rx_sel <= 0;
+    end
+  end
+
   // FIXME: latch all the SM updates on reject/accept payload to break routing
   // assign tcb_rx_sel = (sm_reject_payload | sm_accept_payload) ? target_tcb : 0;
   logic [1:0] target_tcb = 0;
@@ -245,7 +258,6 @@ module tcp_arbiter #(
           rdy <= '1;
           tcp_payload_valid <= 0;
           tcp_payload_err <= 0;
-          tcb_rx_sel <= 0;
           if (is_rx) begin
             rdy   <= 0;
             state <= SELECT_TCB;
@@ -273,14 +285,6 @@ module tcp_arbiter #(
         WAIT_SM_RX_TRANSITION: begin
           tcp_sm_is_rx <= 0;
           // TODO: copy to SDRAM
-          if (sm_accept_payload || sm_reject_payload) begin
-            next_state <= sm_next_state;
-            send_ack <= sm_send_ack;
-            ack_op <= sm_ack_op;
-            seq_op <= sm_seq_op;
-            clear_ack_en <= sm_clear_ack_en;
-            tcb_rx_sel <= target_tcb;
-          end
 
           if (sm_accept_payload) begin
             rdy <= 1;
@@ -300,7 +304,6 @@ module tcp_arbiter #(
         TX_ECHO_PACKET: begin
           // TODO: arbitrate writes to 'to_send' in case tx path is also
           // writing at the same time
-          tcb_rx_sel <= 0;
           state <= WAIT_ECHO;
           echo_pending <= 1'b1;
         end
