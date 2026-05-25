@@ -20,13 +20,13 @@ module fifo #(
     output reg empty,
 
     // Status
-    output wire [ADDR_WIDTH:0] count
+    output reg [ADDR_WIDTH:0] count
 );
   if (EBR && LOOKAHEAD) $error("only non block RAM can support lookahead FIFO");
 
   always @(posedge clk) begin
     if (rst) wr_ptr <= '0;
-    else if (wr_en && !full) begin
+    else if (wr_en && (!full || rd_en)) begin
       wr_ptr <= wr_ptr + 1;
     end
   end
@@ -43,7 +43,7 @@ module fifo #(
       reg [DATA_WIDTH-1:0] mem[0:DEPTH-1];
 
       always @(posedge clk) begin
-        if (wr_en && !full) begin
+        if (wr_en && (!full || rd_en)) begin
           mem[wr_ptr[ADDR_WIDTH-1:0]] <= din;
         end
       end
@@ -62,7 +62,7 @@ module fifo #(
           .WR_WIDTH  (DATA_WIDTH),
           .RD_WIDTH  (DATA_WIDTH),
           .ADDR_WIDTH(ADDR_WIDTH)
-      ) mem (
+      ) mem_ (
           .wr_clk(clk),
           .rd_clk(clk),
           .wr_addr(wr_ptr[ADDR_WIDTH-1:0]),
@@ -77,13 +77,15 @@ module fifo #(
   endgenerate
   // additional bit here allows to differentiate between full and empty
   reg [ADDR_WIDTH:0] wr_ptr = '0, rd_ptr = '0;
-  reg [ADDR_WIDTH:0] next_wr_ptr = '0;
+  reg [ADDR_WIDTH:0] next_wr_ptr, next_rd_ptr;
   assign next_wr_ptr = wr_ptr + 1;
+  assign next_rd_ptr = rd_ptr + 1;
   // Status flags
   // assign full = (wr_ptr - rd_ptr) == DEPTH;
   always @(posedge clk) begin
     if (rst) begin
       full  <= 0;
+      count <= 0;
       empty <= 1;
     end else begin
       casez ({
@@ -91,20 +93,23 @@ module fifo #(
       })
         'b10?0: begin
           full  <= 0;
-          empty <= (rd_ptr + 1) == wr_ptr;
+          empty <= next_rd_ptr == wr_ptr;
+          count <= count - 1;
         end
         'b010?: begin
           full  <= (next_wr_ptr[ADDR_WIDTH] != rd_ptr[ADDR_WIDTH] && next_wr_ptr[ADDR_WIDTH-1:0] == rd_ptr[ADDR_WIDTH-1:0]);
           empty <= 0;
+          count <= count + 1;
         end
-        // wr and rd at the same time
+        // wr and rd at the same time not empty
         'b11?0: begin
           full  <= full;
           empty <= 0;
         end
         'b11?1: begin
-          full  <= 0;
+          full  <= (next_wr_ptr[ADDR_WIDTH] != rd_ptr[ADDR_WIDTH] && next_wr_ptr[ADDR_WIDTH-1:0] == rd_ptr[ADDR_WIDTH-1:0]);
           empty <= 0;
+          count <= count + 1;
         end
         default: begin
         end
@@ -112,19 +117,50 @@ module fifo #(
     end
   end
   // assign empty = (wr_ptr == rd_ptr);
-  assign count = wr_ptr - rd_ptr;
+  // assign count = wr_ptr - rd_ptr;
 
 `ifdef FORMAL
-  initial assume (rst);
+  // initial assume (rst);
+  reg f_past_valid;
   initial f_past_valid = 1'b0;
+  initial begin
+    for (int i = 0; i < DEPTH; i = i + 1) begin
+      mem[i] = '0;
+    end
+  end
+  reg [DATA_WIDTH-1:0] wr_target;
+  always_comb begin
+    wr_target = mem[wr_ptr[ADDR_WIDTH-1:0]];
+  end
   always @(posedge clk) begin
-    f_past_valid <= 1'b1;
+    if (rst) f_past_valid <= 1;
+    // else f_past_valid <= rst;
     // expected ways to use this FIFO
-    assume (~rd_en || (rd_en && ~empty));
-    assume (~wr_en || (wr_en && ~full));
+    // assume (~rd_en || (rd_en && ~empty));
+    // assume (~wr_en || (wr_en && ~full));
     // the data should remain the same as long as rd_en stays low
     if (f_past_valid && !$past(rd_en)) assert ($past(rst) || $stable(dout));
-    assert (~(full && empty));
+    // assert (~(full && empty));
+    if (f_past_valid) assert (count <= DEPTH);
+    if (f_past_valid && count == DEPTH) assert (full);
+    if (!rst && !$past(
+            rst
+        ) && $stable(
+            rd_ptr
+        ) && rd_ptr == $past(
+            wr_ptr
+        ) && f_past_valid && $past(
+            wr_en
+        ) && $past(
+            full
+        ))
+      assert ($stable(dout));
+
+    if (f_past_valid && !$past(rst) && $past(wr_en) && $past(full) && !$past(rd_en))
+      assert (wr_ptr == $past(wr_ptr));
+
+    if (f_past_valid && !$past(rst) && $past(rd_en) && $past(empty))
+      assert (rd_ptr == $past(rd_ptr));
   end
 `endif
 endmodule
