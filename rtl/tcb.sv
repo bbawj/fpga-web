@@ -37,6 +37,12 @@ module tcb #(
 
   wire tx_update_en = tcb_tx_sel == ID;
   wire rx_update_en = tcb_rx_sel == ID;
+  tcp::CONN_STATE prev_state;
+  reg state_rst;
+  always @(posedge clk) begin
+    prev_state <= tcb_mem.state;
+    state_rst  <= prev_state != tcp::LISTEN && tcb_mem.state == tcp::LISTEN;
+  end
 
   /**
   * SM can request a TCP packet when transmitting control state without
@@ -56,7 +62,7 @@ module tcb #(
     else if (wait_pkt_count != '0) wait_pkt_count <= wait_pkt_count << 1;
   end
   always @(posedge clk) begin
-    if (rst || pseudo_pkt_granted) pseudo_pkt_pending <= 1'b0;
+    if (rst || state_rst || pseudo_pkt_granted) pseudo_pkt_pending <= 1'b0;
     // allow transition to FINWAIT to trigger pseudo packet
     else if (wait_pkt_done || (fin_pending && !fin_pending_q)) pseudo_pkt_pending <= 1'b1;
   end
@@ -75,7 +81,7 @@ module tcb #(
       .DEPTH(32)
   ) serialized (
       .clk(clk),
-      .rst(rst),
+      .rst(state_rst || rst),
       .wr_en(serial_wren),
       .din({
         serial_sequence_num, serial_ack_num, serial_payload_size, serial_payload_addr, serial_flags
@@ -211,9 +217,31 @@ module tcb #(
   always @(posedge clk) begin
     fin_pending_q <= fin_pending;
     if (rst) begin
-      tcb_mem.state <= tcp::LISTEN;
       fin_pending   <= 0;
       fin_pending_q <= 0;
+    end else if (tcb_mem.state != tcp::ESTABLISHED) begin
+      fin_pending <= 0;
+    end else if (tcb_mem.state == tcp::ESTABLISHED && !echo_en && serial_empty && actual_payload_serialized && to_ack_empty) begin
+      fin_pending <= 1'b1;
+    end
+  end
+
+`ifdef SYNTHESIS
+  localparam int FIN_TIMEOUT = 1250000000;
+`else
+  localparam int FIN_TIMEOUT = 12500;
+`endif
+  reg fin_timeout;
+  assign fin_timeout = fin_timeout_counter == '0;
+  reg [31:0] fin_timeout_counter;
+  always @(posedge clk) begin
+    if (fin_pending) fin_timeout_counter <= fin_timeout_counter - 1;
+    else fin_timeout_counter <= FIN_TIMEOUT;
+  end
+
+  always @(posedge clk) begin
+    if (rst) begin
+      tcb_mem.state <= tcp::LISTEN;
     end else if (rx_update_en) begin
       tcb_mem.peer_addr <= i_pkt.peer_addr;
       tcb_mem.peer_port <= i_pkt.peer_port;
@@ -221,19 +249,11 @@ module tcb #(
     end else if (tcb_mem.state == tcp::ESTABLISHED && !echo_en && serial_empty && actual_payload_serialized && to_ack_empty) begin
       // HTTP 1.0: we tag a FIN along with the HTTP payload
       tcb_mem.state <= tcp::FINWAIT;
-      fin_pending   <= 1'b1;
     end else if (tcb_mem.state == tcp::FINWAIT && fin_timeout) begin
       tcb_mem.state <= tcp::LISTEN;
     end
   end
 
-  reg fin_timeout;
-  assign fin_timeout = fin_timeout_counter == '0;
-  reg [31:0] fin_timeout_counter;
-  always @(posedge clk) begin
-    if (fin_pending) fin_timeout_counter <= fin_timeout_counter - 1;
-    else fin_timeout_counter <= 'd1250000000;
-  end
   always @(posedge clk) begin
     if (rx_update_en) begin
       case (ack_op)
@@ -274,12 +294,17 @@ module tcb #(
   // TODO: should we add FIN packets also?
   // TODO: should we add ACK packets also..?
   always @(posedge clk) begin
-    to_ack_wr_en <= pkt_to_send_valid_q;
+    if (rst || state_rst) begin
+      to_ack_wr_en <= 0;
+    end else begin
+      to_ack_wr_en <= pkt_to_send_valid_q && o_pkt.flags != tcp::ACK;
+    end
   end
 
   always @(posedge clk) begin
-    if (rst) begin
-      pkt_to_send_valid <= 1'b0;
+    if (rst || state_rst) begin
+      pkt_to_send_valid   <= 1'b0;
+      pkt_to_send_valid_q <= 0;
     end else begin
       pkt_to_send_valid   <= 1'b0;
       pkt_to_send_valid_q <= pkt_to_send_valid;
@@ -314,7 +339,7 @@ module tcb #(
       .DEPTH(32)
   ) to_send (
       .clk  (clk),
-      .rst  (rst),
+      .rst  (rst || state_rst),
       .wr_en(to_send_wr_en && tx_update_en),
       .din  ({upper_to_send_payload_size, upper_to_send_payload_addr}),
       .full (),
@@ -332,8 +357,8 @@ module tcb #(
   logic [ 7:0] to_ack_flags;
   to_ack_fifo to_ack_fifo_ (
       .clk(clk),
-      .rst(rst),
-      .clear(clear_ack_en),
+      .rst(rst || state_rst),
+      .clear(rx_update_en && clear_ack_en),
       .retransmit_granted(to_ack_retransmit_granted),
       .i_target_ack_to_clear(i_pkt.ack_num),
       .wr_en(to_ack_wr_en),
@@ -351,7 +376,4 @@ module tcb #(
       .retransmit_pending(to_ack_retransmit_pending)
   );
 
-  // TODO: Re-transmission timer that moves packets from to_ack to to_send
-  always @(posedge clk) begin
-  end
 endmodule
