@@ -48,14 +48,14 @@ module sdram_ctrl #(
 `ifdef FORMAL
   localparam int REFRESH_CYCLE = 160 / CYCLE_TIME_NS;
 `else
-  localparam int REFRESH_CYCLE = 16000 / CYCLE_TIME_NS;
+  localparam int REFRESH_CYCLE = (16000 + CYCLE_TIME_NS - 1) / CYCLE_TIME_NS;
 `endif
   // t_rfc (55ns)
-  localparam int ROW_CYCLE_TIME = 55 / CYCLE_TIME_NS;
+  localparam int ROW_CYCLE_TIME = (55 + CYCLE_TIME_NS - 1) / CYCLE_TIME_NS;
   // tRP (min) ~ 20ns
-  localparam int PRECHARGE_MIN = 20 / CYCLE_TIME_NS;
+  localparam int PRECHARGE_MIN = (20 + CYCLE_TIME_NS - 1) / CYCLE_TIME_NS;
   // tRAS (min) 42ns
-  localparam int ROW_ACTIVE_TIME_MIN = 42 / CYCLE_TIME_NS;
+  localparam int ROW_ACTIVE_TIME_MIN = (42 + CYCLE_TIME_NS - 1) / CYCLE_TIME_NS;
   // 2 cyles min to complete write
   localparam int MRS_DELAY = 2;
   // Programmed during MRS
