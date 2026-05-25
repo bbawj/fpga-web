@@ -57,7 +57,7 @@ module tcb #(
   logic wait_pkt_done, pseudo_pkt_pending, pseudo_pkt_granted;
   assign wait_pkt_done = wait_pkt_count[7];
   always @(posedge clk) begin
-    if (wait_pkt_done || (to_send_wr_en && tx_update_en)) wait_pkt_count <= 0;
+    if (rst || wait_pkt_done || (to_send_wr_en && tx_update_en)) wait_pkt_count <= 0;
     else if (rx_update_en && send_ack && to_send_empty) wait_pkt_count <= 1;
     else if (wait_pkt_count != '0) wait_pkt_count <= wait_pkt_count << 1;
   end
@@ -100,16 +100,23 @@ module tcb #(
     SERIAL_UPPER,
     SERIAL_UPPER_UPDATE,
     SERIAL_PSEUDO,
+    SERIAL_PSEUDO_WAIT,
     SERIAL_RETRANSMIT
   } serial_state_t;
   serial_state_t serial_state = SERIAL_IDLE;
   reg actual_payload_serialized = 0;
   always @(posedge clk) begin
-    if (rst || tcb_mem.state == tcp::LISTEN) actual_payload_serialized <= 0;
-    else if (serial_state == SERIAL_UPPER) actual_payload_serialized <= 1'b1;
+    if (rst || state_rst || tcb_mem.state == tcp::LISTEN) actual_payload_serialized <= 0;
+    else if (serial_state == SERIAL_UPPER_UPDATE) actual_payload_serialized <= 1'b1;
   end
+
   always @(posedge clk) begin
-    if (rst) begin
+    if (serial_state == SERIAL_PSEUDO) pseudo_pkt_granted <= 1;
+    else pseudo_pkt_granted <= 0;
+  end
+
+  always @(posedge clk) begin
+    if (rst || state_rst) begin
       serial_state <= SERIAL_IDLE;
     end else
       case (serial_state)
@@ -118,7 +125,6 @@ module tcb #(
           serial_sequence_num <= tcb_mem.sequence_num;
           if (pseudo_pkt_pending) begin
             serial_state <= SERIAL_PSEUDO;
-            pseudo_pkt_granted <= 1;
           end else if (!to_send_empty) begin
             serial_state <= SERIAL_UPPER_WAIT;
             to_send_rden <= 1;
@@ -164,8 +170,7 @@ module tcb #(
           serial_state <= SERIAL_IDLE;
         end
         SERIAL_PSEUDO: begin
-          serial_state <= SERIAL_IDLE;
-          pseudo_pkt_granted <= 0;
+          serial_state <= SERIAL_PSEUDO_WAIT;
           serial_wren <= 1;
           serial_ack_num <= tcb_mem.ack_num;
           serial_payload_size <= 0;
@@ -190,6 +195,10 @@ module tcb #(
               serial_flags <= 0;
             end
           endcase
+        end
+        SERIAL_PSEUDO_WAIT: begin
+          serial_state <= SERIAL_IDLE;
+          serial_wren  <= 0;
         end
         SERIAL_RETRANSMIT: begin
           serial_state <= SERIAL_IDLE;
@@ -246,11 +255,11 @@ module tcb #(
       tcb_mem.peer_addr <= i_pkt.peer_addr;
       tcb_mem.peer_port <= i_pkt.peer_port;
       tcb_mem.state <= i_state;
+    end else if (tcb_mem.state == tcp::FINWAIT && fin_timeout) begin
+      tcb_mem.state <= tcp::LISTEN;
     end else if (tcb_mem.state == tcp::ESTABLISHED && !echo_en && serial_empty && actual_payload_serialized && to_ack_empty) begin
       // HTTP 1.0: we tag a FIN along with the HTTP payload
       tcb_mem.state <= tcp::FINWAIT;
-    end else if (tcb_mem.state == tcp::FINWAIT && fin_timeout) begin
-      tcb_mem.state <= tcp::LISTEN;
     end
   end
 

@@ -97,6 +97,7 @@ module tcp_arbiter #(
     GRANT_IDLE,
     GRANT_BREAK,
     GRANT_UPPER,
+    GRANT_UPPER_WAIT,
     GRANT_PENDING,
     WAIT_PKT,
     SEND_PKT,
@@ -143,7 +144,7 @@ module tcp_arbiter #(
           if (to_send_payload_size <= 1440) begin
             mux_to_send_payload_size <= to_send_payload_size;
             mux_to_send_payload_addr <= to_send_payload_addr;
-            grant_state <= GRANT_IDLE;
+            grant_state <= GRANT_UPPER_WAIT;
           end else begin
             mux_to_send_payload_size <= 1440;
             remaining_payload_size <= to_send_payload_size - 1440;
@@ -152,7 +153,14 @@ module tcp_arbiter #(
             grant_state <= GRANT_BREAK;
           end
         end
+        GRANT_UPPER_WAIT: begin
+          // for upper_pending to transition
+          upper_granted <= 0;
+          grant_state   <= GRANT_IDLE;
+          to_send_wr_en <= 0;
+        end
         GRANT_BREAK: begin
+          upper_granted <= 0;
           to_send_wr_en <= 1'b1;
           remaining_payload_size <= remaining_payload_size - 1440;
           remaining_payload_addr <= remaining_payload_addr + (1440 / 4);
@@ -195,24 +203,25 @@ module tcp_arbiter #(
 
   // TODO: find matching TCB for TX path
   reg upper_state = 0;
-  assign upper_pending = upper_state == 1 && !upper_granted;
+  // assign upper_pending = upper_state == 1 && !upper_granted;
   always @(posedge clk) begin
     if (rst) begin
-      upper_state <= 0;
+      upper_state   <= 0;
+      upper_pending <= 0;
     end else
       case (upper_state)
         0: begin
-          // upper_pending <= 0;
+          upper_pending <= 0;
           if (is_tx && rx_packet.peer_addr == tcb_pkt.peer_addr &&
           rx_packet.peer_port == tcb_pkt.peer_port) begin
             upper_state <= 1;
           end
         end
         1: begin
-          // upper_pending <= 1;
+          upper_pending <= 1;
           if (upper_granted) begin
-            // upper_pending <= 0;
-            upper_state <= 0;
+            upper_pending <= 0;
+            upper_state   <= 0;
           end
         end
         default: upper_state <= 0;
