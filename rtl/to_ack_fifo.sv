@@ -8,28 +8,38 @@ module to_ack_fifo (
     input [15:0] to_send_payload_size,
     input [31:0] to_send_sequence_num,
     input [31:0] to_send_ack_num,
+    input [7:0] to_send_flags,
     input retransmit_granted,
 
     output reg [18:0] to_ack_payload_addr,
     output reg [15:0] to_ack_payload_size,
     output reg [31:0] to_ack_sequence_num,
     output reg [31:0] to_ack_ack_num,
+    output reg [7:0] to_ack_flags,
     output reg empty,
     output reg retransmit_pending
 );
   reg rd_en;
   fifo #(
       .LOOKAHEAD(1),
-      .DATA_WIDTH(99),
+      .DATA_WIDTH(107),
       .DEPTH(32)
   ) to_ack (
-      .clk  (clk),
-      .rst  (rst),
+      .clk(clk),
+      .rst(rst),
       .wr_en(wr_en),
-      .din  ({to_send_sequence_num, to_send_ack_num, to_send_payload_size, to_send_payload_addr}),
-      .full (),
+      .din({
+        to_send_sequence_num,
+        to_send_ack_num,
+        to_send_payload_size,
+        to_send_payload_addr,
+        to_send_flags
+      }),
+      .full(),
       .rd_en(rd_en),
-      .dout ({to_ack_sequence_num, to_ack_ack_num, to_ack_payload_size, to_ack_payload_addr}),
+      .dout({
+        to_ack_sequence_num, to_ack_ack_num, to_ack_payload_size, to_ack_payload_addr, to_ack_flags
+      }),
       .empty(empty),
       .count()
   );
@@ -38,10 +48,24 @@ module to_ack_fifo (
   typedef enum {
     IDLE,
     MATCH,
+    LOOP_WAIT,
+    LOOP_WAIT2,
     LOOP,
     WAIT_RETRANSMIT
   } state_t;
   state_t state = IDLE;
+  reg [15:0] size;
+  reg [31:0] seq;
+  reg [7:0] flags;
+  always @(posedge clk) begin
+    seq   <= to_ack_sequence_num;
+    size  <= to_ack_payload_size;
+    flags <= to_ack_flags;
+  end
+  always @(posedge clk) begin
+    // the FIN ACK packet has 0 payload but expects a FIN ACK response that has ACK = SEQ + 1
+    current_ack <= seq + ((flags == (tcp::FIN | tcp::ACK)) ? 'd1 : {16'b0, size});
+  end
   always @(posedge clk) begin
     if (rst) state <= IDLE;
     else begin
@@ -51,7 +75,6 @@ module to_ack_fifo (
           target_ack_to_clear <= i_target_ack_to_clear;
           if (clear && !empty) begin
             state <= MATCH;
-            current_ack <= to_ack_sequence_num + {16'b0, to_ack_payload_size};
           end else if (retransmit_pending) begin
             state <= WAIT_RETRANSMIT;
           end
@@ -59,8 +82,18 @@ module to_ack_fifo (
         MATCH: begin
           if (target_ack_to_clear >= current_ack) begin
             rd_en <= 1;
-            state <= LOOP;
+            state <= LOOP_WAIT;
           end else state <= IDLE;
+        end
+        LOOP_WAIT: begin
+          // wait for current_ack to update
+          rd_en <= 0;
+          state <= LOOP_WAIT2;
+        end
+        LOOP_WAIT2: begin
+          // wait for current_ack to update
+          rd_en <= 0;
+          state <= LOOP;
         end
         LOOP: begin
           rd_en <= 0;
@@ -83,7 +116,7 @@ module to_ack_fifo (
 `ifdef SYNTHESIS
   assign retransmit_pending = retransmit_timer == 'd1250000000;
 `else
-  assign retransmit_pending = retransmit_timer == 'd1250;
+  assign retransmit_pending = retransmit_timer == 'd5000;
 `endif
   reg [31:0] retransmit_timer;
   always @(posedge clk) begin

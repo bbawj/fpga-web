@@ -136,7 +136,7 @@ module tcb #(
               serial_flags <= tcp::SYN | tcp::ACK;
             end
             tcp::ESTABLISHED: begin
-              serial_flags <= tcp::ACK;
+              serial_flags <= tcp::ACK | tcp::PSH;
             end
             tcp::LASTACK: begin
               serial_flags <= tcp::ACK | tcp::FIN;
@@ -193,6 +193,7 @@ module tcb #(
           serial_ack_num <= to_ack_ack_num;
           serial_payload_size <= to_ack_payload_size;
           serial_payload_addr <= to_ack_payload_addr;
+          serial_flags <= to_ack_flags;
         end
         default: begin
           serial_state <= SERIAL_IDLE;
@@ -328,6 +329,7 @@ module tcb #(
   logic [15:0] to_ack_payload_size;
   logic [31:0] to_ack_sequence_num;
   logic [31:0] to_ack_ack_num;
+  logic [ 7:0] to_ack_flags;
   to_ack_fifo to_ack_fifo_ (
       .clk(clk),
       .rst(rst),
@@ -339,10 +341,12 @@ module tcb #(
       .to_send_payload_size(o_pkt.payload_size),
       .to_send_sequence_num(o_pkt.sequence_num),
       .to_send_ack_num(o_pkt.ack_num),
+      .to_send_flags(o_pkt.flags),
       .to_ack_payload_addr(to_ack_payload_addr),
       .to_ack_payload_size(to_ack_payload_size),
       .to_ack_sequence_num(to_ack_sequence_num),
       .to_ack_ack_num(to_ack_ack_num),
+      .to_ack_flags(to_ack_flags),
       .empty(to_ack_empty),
       .retransmit_pending(to_ack_retransmit_pending)
   );
