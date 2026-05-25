@@ -84,8 +84,30 @@ module fifo #(
   // assign full = (wr_ptr - rd_ptr) == DEPTH;
   always @(posedge clk) begin
     if (rst) begin
-      full  <= 0;
       count <= 0;
+    end else begin
+      casez ({
+        rd_en, wr_en, full, empty
+      })
+        'b10?0: begin
+          count <= count - 1;
+        end
+        'b010?: begin
+          count <= count + 1;
+        end
+        'b11?1: begin
+          count <= count + 1;
+        end
+        default: begin
+          count <= count;
+        end
+      endcase
+    end
+  end
+
+  always @(posedge clk) begin
+    if (rst) begin
+      full  <= 0;
       empty <= 1;
     end else begin
       casez ({
@@ -94,22 +116,14 @@ module fifo #(
         'b10?0: begin
           full  <= 0;
           empty <= next_rd_ptr == wr_ptr;
-          count <= count - 1;
         end
         'b010?: begin
           full  <= (next_wr_ptr[ADDR_WIDTH] != rd_ptr[ADDR_WIDTH] && next_wr_ptr[ADDR_WIDTH-1:0] == rd_ptr[ADDR_WIDTH-1:0]);
-          empty <= 0;
-          count <= count + 1;
-        end
-        // wr and rd at the same time not empty
-        'b11?0: begin
-          full  <= full;
           empty <= 0;
         end
         'b11?1: begin
           full  <= (next_wr_ptr[ADDR_WIDTH] != rd_ptr[ADDR_WIDTH] && next_wr_ptr[ADDR_WIDTH-1:0] == rd_ptr[ADDR_WIDTH-1:0]);
           empty <= 0;
-          count <= count + 1;
         end
         default: begin
         end

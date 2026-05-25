@@ -30,6 +30,7 @@ arp_decode: prep -top arp_decode
 arp_decode: chformal -assert -skip 1
 
 fifo: read -formal fifo.sv
+fifo: chparam -set DEPTH 8 fifo
 fifo: prep -top fifo
 fifo: chformal -assert -skip 1
 
