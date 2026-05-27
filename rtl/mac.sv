@@ -113,7 +113,6 @@ module mac #(
       .MY_IP_ADDR (LOC_IP_ADDR)
   ) tx (
       .clk(clk),
-      .sdram_clk(clk),
       .rst(rst),
       .i_mac_da(mac_sa),
       .tcp_echo_en(tcp_echo_en),
@@ -207,6 +206,8 @@ module mac #(
   );
 
   tcp::packet_t packet;
+  assign packet.payload_addr = '0;
+  assign packet.window = '0;
   reg [7:0] tcp_decode_payload;
   reg tcp_decode_payload_valid, tcp_decode_done, tcp_decode_err;
   reg [15:0] tcp_decode_peer_port;
@@ -243,10 +244,12 @@ module mac #(
       .err (tcp_decode_err)
   );
 
-  reg incoming_tcp, tcp_decode_done_stretched, tcp_decode_done_sync, tcp_decode_done_q1;
+  reg incoming_tcp = 0, incoming_tcp_q = 0;
+  reg tcp_decode_done_stretched, tcp_decode_done_sync, tcp_decode_done_q1;
   always @(posedge clk) begin
     tcp_decode_done_q1 <= tcp_decode_done_sync;
     incoming_tcp <= !tcp_decode_done_q1 && tcp_decode_done_sync;
+    incoming_tcp_q <= incoming_tcp;
   end
   pulse_stretcher tcpdecodedonestretcher (
       .clk(phy_rxc),
@@ -262,7 +265,7 @@ module mac #(
       .DATA_WIDTH(152)
   ) sync_fifo (
       .wr_clk(phy_rxc),
-      .wr_rst(1'b0),
+      .wr_rst(rst),
       .wr_en(tcp_decode_done),
       .wr_data({
         ip_sa,
@@ -275,7 +278,7 @@ module mac #(
       }),
       .wr_full(),
       .rd_clk(clk),
-      .rd_rst(1'b0),
+      .rd_rst(rst),
       .rd_en(incoming_tcp),
       .rd_empty(),
       .rd_data({
@@ -307,7 +310,7 @@ module mac #(
       .to_send_payload_addr(to_send_payload_addr),
       .to_send_payload_size(to_send_payload_size),
 
-      .is_rx(incoming_tcp),
+      .is_rx(incoming_tcp_q),
       .rx_packet(packet),
       .tcp_payload_valid(tcp_payload_valid),
       .tcp_payload_err(tcp_payload_err),
@@ -365,7 +368,6 @@ module mac #(
       .sig(arp_done),
       .q  (arp_done_sync)
   );
-  reg outgoing_tcp;
   always @(posedge clk) begin : generate_send_pulse
     // FIXME: send_arp should be passed to a FIFO similar to send_tcp in case
     // send_arp is asserted when TX path is already busy
@@ -381,6 +383,7 @@ module mac #(
   // Handles outgoing_tcp
   // Checks for HTTP decode OK, waits for SM approval, fire off outgoing_tcp.
   // SM responds a few cycles after HTTP decode validates.
+  reg outgoing_tcp = 0;
   logic [1:0] http_state = 0;
   always @(posedge clk) begin
     case (http_state)

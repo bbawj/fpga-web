@@ -225,31 +225,34 @@ module tcb #(
     o_state <= tcb_mem.state;
     o_pkt.peer_addr <= tcb_mem.peer_addr;
     o_pkt.peer_port <= tcb_mem.peer_port;
+    o_pkt.window <= 0;
   end
 
-  reg fin_pending, fin_pending_q;
+  reg fin_pending = 0, fin_pending_q = 0;
   always @(posedge clk) begin
-    fin_pending_q <= fin_pending;
-    if (rst) begin
+    if (rst || state_rst) begin
       fin_pending   <= 0;
       fin_pending_q <= 0;
-    end else if (tcb_mem.state != tcp::ESTABLISHED) begin
-      fin_pending <= 0;
-    end else if (tcb_mem.state == tcp::ESTABLISHED && !echo_en && serial_empty && actual_payload_serialized && to_ack_empty) begin
-      fin_pending <= 1'b1;
+    end else begin
+      fin_pending_q <= fin_pending;
+      if (tcb_mem.state != tcp::ESTABLISHED) begin
+        fin_pending <= 0;
+      end else if (tcb_mem.state == tcp::ESTABLISHED && !echo_en && serial_empty && actual_payload_serialized && to_ack_empty && to_send_empty) begin
+        fin_pending <= 1'b1;
+      end
     end
   end
 
 `ifdef SYNTHESIS
-  localparam int FIN_TIMEOUT = 1250000000;
+  localparam int FIN_TIMEOUT = 'd1250000000;
 `else
-  localparam int FIN_TIMEOUT = 12500;
+  localparam int FIN_TIMEOUT = 'd12500;
 `endif
   wire fin_timeout;
   assign fin_timeout = fin_timeout_counter == '0;
   reg [31:0] fin_timeout_counter;
   always @(posedge clk) begin
-    if (fin_pending) fin_timeout_counter <= fin_timeout_counter - 1;
+    if (fin_pending) fin_timeout_counter <= fin_timeout_counter == 0 ? 0 : fin_timeout_counter - 1;
     else fin_timeout_counter <= FIN_TIMEOUT;
   end
 

@@ -3,7 +3,6 @@ module mac_tx #(
     parameter [31:0] MY_IP_ADDR  = 0
 ) (
     input clk,
-    input sdram_clk,
     input rst,
     input tcp_echo_en,
     input [15:0] tcp_echo_checksum,
@@ -28,14 +27,16 @@ module mac_tx #(
 
   // FIFO has 1 cycle latency between pkt_rd_en and data being available for
   // sampling so we wait for falling edge here.
-  reg pkt_rd_en, pkt_rd_en_q1, pkt_rd_falling;
+  reg pkt_rd_en, pkt_rd_en_q1;
   logic [18:0] pkt_payload_addr;
   logic [15:0] pkt_payload_size;
 
   tcp::packet_t pkt;
+  wire pkt_rd_falling;
+  assign pkt_rd_falling = ~pkt_rd_en && pkt_rd_en_q1;
   always @(posedge clk) begin
-    pkt_rd_en_q1   <= pkt_rd_en;
-    pkt_rd_falling <= ~pkt_rd_en && pkt_rd_en_q1;
+    pkt_rd_en_q1 <= pkt_rd_en;
+    tcp_outgoing_buffer_start <= pkt_rd_falling;
     if (pkt_rd_falling) begin
       pkt_payload_addr <= pkt.payload_addr;
       pkt_payload_size <= pkt.payload_size;
@@ -51,9 +52,6 @@ module mac_tx #(
     end
   end
 
-  // Handle up to 2 in flight outgoing packets since we do not implement any
-  // delayed ACK, every received packet will have 1 ACK reply and if the
-  // response from our application is too quick there needs to be a buffer
   reg tcp_empty, send_tcp_q;
   always @(posedge clk) begin
     send_tcp_q <= send_tcp;
@@ -92,7 +90,7 @@ module mac_tx #(
       .RD_WIDTH(8),
       .WR_WIDTH(32)
   ) tcp_outgoing_buffer (
-      .wr_clk(sdram_clk),
+      .wr_clk(clk),
       .wr_en(tcp_outgoing_wr_en),
       .wr_addr(tcp_outgoing_wr_ptr),
       .wr_data(tcp_outgoing_wr_data),
@@ -103,95 +101,86 @@ module mac_tx #(
       .rd_data(tcp_outgoing_rd_data)
   );
 
-  reg [15:0] tcp_encode_initial_checksum_sc = '0;
   reg [17:0] checksum_stage1 = '0;
   reg checksum_stage_valid;
-  always @(posedge sdram_clk) begin
+  always @(posedge clk) begin
     checksum_stage_valid <= tcp_outgoing_wr_en;
     if (tcp_outgoing_wr_en) begin
       // wr_data is in LE order not network transmit order
-      checksum_stage1 <= {2'b0, tcp_encode_initial_checksum_sc} + { 2'b0, tcp_outgoing_wr_data[7:0], tcp_outgoing_wr_data[15:8] } + {2'b0, tcp_outgoing_wr_data[23:16], tcp_outgoing_wr_data[31:24] };
-    end else if (tcp_outgoing_buffer_start_rising) checksum_stage1 <= '0;
+      checksum_stage1 <= {2'b0, tcp_encode_initial_checksum} + { 2'b0, tcp_outgoing_wr_data[7:0], tcp_outgoing_wr_data[15:8] } + {2'b0, tcp_outgoing_wr_data[23:16], tcp_outgoing_wr_data[31:24] };
+    end else if (tcp_outgoing_buffer_start) checksum_stage1 <= '0;
   end
-  always @(posedge sdram_clk) begin
+  always @(posedge clk) begin
     if (checksum_stage_valid) begin
-      tcp_encode_initial_checksum_sc <= checksum_stage1[15:0] + {14'b0, checksum_stage1[17:16]};
-    end else if (tcp_outgoing_buffer_start_rising) tcp_encode_initial_checksum_sc <= '0;
+      tcp_encode_initial_checksum <= checksum_stage1[15:0] + {14'b0, checksum_stage1[17:16]};
+    end else if (tcp_outgoing_buffer_start) tcp_encode_initial_checksum <= '0;
   end
-  synchronizer #(
-      .INPUT_WIDTH(16),
-      .SYNC_WIDTH (2)
-  ) sync3 (
-      .clk(clk),
-      .sig(tcp_encode_initial_checksum_sc),
-      .q  (tcp_encode_initial_checksum)
-  );
 
-  reg tcp_outgoing_buffer_start_0, tcp_outgoing_buffer_start_1, tcp_outgoing_buffer_start_rising;
-  synchronizer #(
-      .INPUT_WIDTH(1),
-      .SYNC_WIDTH (3)
-  ) _sync (
-      .clk(sdram_clk),
-      .sig(pkt_rd_falling),
-      .q  (tcp_outgoing_buffer_start_0)
-  );
+  reg tcp_outgoing_buffer_start;
   reg [15:0] payload_counter = '0, sc_payload_counter;
 
-  always @(posedge sdram_clk) begin
-    tcp_outgoing_buffer_start_1 <= tcp_outgoing_buffer_start_0;
-    tcp_outgoing_buffer_start_rising <= ~tcp_outgoing_buffer_start_1 & tcp_outgoing_buffer_start_0;
+  reg pkt_rd_falling_q = 0, tcp_outgoing_rdy = 0;
+  always @(posedge clk) begin
+    if (rst) begin
+      pkt_rd_falling_q <= 0;
+    end else begin
+      pkt_rd_falling_q <= pkt_rd_falling;
+    end
+  end
+  always @(posedge clk) begin
     tcp_outgoing_wr_data <= tcp_payload_rd_data;
     // reading in 32 bit blocks
-    sc_payload_counter <= (pkt_payload_size >> 2) + 16'(|pkt_payload_size[1:0]);
-    case (payload_buff_state)
-      BUFF_STATE_IDLE: begin
-        payload_counter <= '0;
-        tcp_payload_rd_en <= '0;
-        tcp_outgoing_wr_en <= '0;
-        tcp_outgoing_wr_ptr <= '0;
-        tcp_outgoing_rdy <= 0;
-        payload_counter <= sc_payload_counter;
-        tcp_payload_rd_ad <= pkt_payload_addr;
-        tcp_payload_rd_size <= pkt_payload_size;
-        // Assume pkt.payload_size > 0
-        if (tcp_outgoing_buffer_start_rising && pkt_payload_size > 0) begin
-          tcp_payload_rd_en  <= 1'b1;
-          payload_buff_state <= BUFF_STATE_START;
-        end else if (tcp_outgoing_buffer_start_rising && pkt_payload_size == 0) begin
-          payload_buff_state <= BUFF_STATE_MOVE_TO_LOCAL;
-        end
-      end
-      BUFF_STATE_START: begin
-        tcp_payload_rd_en  <= payload_counter > 0;
-        tcp_outgoing_wr_en <= tcp_payload_rd_valid;
-        if (tcp_payload_rd_valid) begin
-          tcp_payload_rd_ad <= tcp_payload_rd_ad + 1;
-          tcp_outgoing_wr_ptr <= tcp_outgoing_wr_ptr + 1;
-          payload_counter <= payload_counter - 1;
-        end
-        if (payload_counter == 0) payload_buff_state <= BUFF_STATE_MOVE_TO_LOCAL;
-      end
-      BUFF_STATE_MOVE_TO_LOCAL: begin
-        tcp_outgoing_wr_en <= 1'b0;
-        tcp_outgoing_rdy   <= 1;
-        payload_buff_state <= BUFF_STATE_IDLE;
-      end
-      default: begin
-        payload_buff_state <= BUFF_STATE_IDLE;
-      end
-    endcase
+    if (rst) begin
+      sc_payload_counter <= 0;
+    end else if (pkt_rd_falling_q)
+      sc_payload_counter <= (pkt_payload_size >> 2) + 16'(|pkt_payload_size[1:0]);
   end
-  reg tcp_outgoing_rdy, tcp_outgoing_rdy_sync;
-  synchronizer #(
-      .INPUT_WIDTH(1),
-      .SYNC_WIDTH (2)
-  ) sync2 (
-      .clk(clk),
-      .sig(tcp_outgoing_rdy),
-      .q  (tcp_outgoing_rdy_sync)
-  );
-
+  always @(posedge clk) begin
+    if (rst) begin
+      payload_counter <= '0;
+      tcp_payload_rd_en <= '0;
+      tcp_outgoing_wr_en <= '0;
+      tcp_outgoing_wr_ptr <= '0;
+      tcp_outgoing_rdy <= 0;
+      payload_buff_state <= BUFF_STATE_IDLE;
+    end else
+      case (payload_buff_state)
+        BUFF_STATE_IDLE: begin
+          tcp_payload_rd_en <= '0;
+          tcp_outgoing_wr_en <= '0;
+          tcp_outgoing_wr_ptr <= '0;
+          tcp_outgoing_rdy <= 0;
+          payload_counter <= 0;
+          tcp_payload_rd_ad <= pkt_payload_addr;
+          tcp_payload_rd_size <= pkt_payload_size;
+          // Assume pkt.payload_size > 0
+          if (tcp_outgoing_buffer_start && pkt_payload_size > 0) begin
+            tcp_payload_rd_en  <= 1'b1;
+            payload_buff_state <= BUFF_STATE_START;
+          end else if (tcp_outgoing_buffer_start && pkt_payload_size == 0) begin
+            payload_buff_state <= BUFF_STATE_MOVE_TO_LOCAL;
+          end
+        end
+        BUFF_STATE_START: begin
+          tcp_payload_rd_en  <= payload_counter != sc_payload_counter;
+          tcp_outgoing_wr_en <= tcp_payload_rd_valid;
+          if (tcp_payload_rd_valid) begin
+            tcp_payload_rd_ad <= tcp_payload_rd_ad + 1;
+            tcp_outgoing_wr_ptr <= tcp_outgoing_wr_ptr + 1;
+            payload_counter <= payload_counter + 1;
+          end
+          if (payload_counter == sc_payload_counter) payload_buff_state <= BUFF_STATE_MOVE_TO_LOCAL;
+        end
+        BUFF_STATE_MOVE_TO_LOCAL: begin
+          tcp_outgoing_wr_en <= 1'b0;
+          tcp_outgoing_rdy   <= 1;
+          payload_buff_state <= BUFF_STATE_IDLE;
+        end
+        default: begin
+          payload_buff_state <= BUFF_STATE_IDLE;
+        end
+      endcase
+  end
 
   reg mac_encode_en, mac_encode_ready;
   reg [7:0] mac_payload;
@@ -291,8 +280,9 @@ module mac_tx #(
   reg [15:0] payload_counter_2;
   always @(posedge clk) begin
     if (rst) begin
-      tx_state  <= IDLE;
+      tx_state <= IDLE;
       pkt_rd_en <= 0;
+      mac_encode_en <= '0;
     end else begin
       case (tx_state)
         IDLE: begin
@@ -318,7 +308,7 @@ module mac_tx #(
         end
         PAYLOAD_LOADING: begin
           pkt_rd_en <= 0;
-          if (tcp_outgoing_rdy_sync) begin
+          if (tcp_outgoing_rdy) begin
             tx_state <= IP_PKT_WAIT;
             mac_encode_en <= 1;
           end

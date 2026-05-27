@@ -75,7 +75,7 @@ module tcp_arbiter #(
 
       .tcb_rx_sel(tcb_rx_sel),
       .i_state(next_state),
-      .i_pkt(rx_packet),
+      .i_pkt(rx_packet_q),
       .clear_ack_en(clear_ack_en),
       .ack_op(ack_op),
       .seq_op(seq_op),
@@ -104,7 +104,7 @@ module tcp_arbiter #(
     GRANT_ECHO
   } grant_state_t;
   grant_state_t grant_state;
-  logic pkt_granted, echo_granted, echo_pending, upper_pending;
+  logic pkt_granted, echo_granted, echo_pending;
   logic [18:0] mux_to_send_payload_addr, remaining_payload_addr;
   logic [15:0] mux_to_send_payload_size, remaining_payload_size;
   always @(posedge clk) begin
@@ -202,8 +202,7 @@ module tcp_arbiter #(
   end
 
   // TODO: find matching TCB for TX path
-  reg upper_state = 0;
-  // assign upper_pending = upper_state == 1 && !upper_granted;
+  reg upper_state = 0, upper_pending = 0;
   always @(posedge clk) begin
     if (rst) begin
       upper_state   <= 0;
@@ -212,8 +211,7 @@ module tcp_arbiter #(
       case (upper_state)
         0: begin
           upper_pending <= 0;
-          if (is_tx && rx_packet.peer_addr == tcb_pkt.peer_addr &&
-          rx_packet.peer_port == tcb_pkt.peer_port) begin
+          if (is_tx) begin
             upper_state <= 1;
           end
         end
@@ -239,7 +237,7 @@ module tcp_arbiter #(
   state_t state = RX_IDLE;
 
   always @(posedge clk) begin
-    if (sm_accept_payload || sm_reject_payload) begin
+    if (state == WAIT_SM_RX_TRANSITION && (sm_accept_payload || sm_reject_payload)) begin
       next_state <= sm_next_state;
       send_ack <= sm_send_ack;
       ack_op <= sm_ack_op;
@@ -278,16 +276,16 @@ module tcp_arbiter #(
           tcp_payload_err   <= 0;
           if (is_rx) begin
             state <= SELECT_TCB;
+            rx_packet_q <= rx_packet;
             // TODO: should block new connections if out of TCBs
           end
         end
         SELECT_TCB: begin
-          rx_packet_q <= rx_packet;
           state <= RX_PACKET;
         end
         RX_PACKET: begin
           tcb_pkt_sel <= tcb_pkt;
-          if (tcb_state == tcp::LISTEN || (tcb_pkt.peer_port == rx_packet.peer_port && tcb_pkt.peer_addr == rx_packet.peer_addr)) begin
+          if (tcb_state == tcp::LISTEN || (tcb_pkt.peer_port == rx_packet_q.peer_port && tcb_pkt.peer_addr == rx_packet_q.peer_addr)) begin
             tcp_sm_is_rx <= 1;
             state <= WAIT_SM_RX_TRANSITION;
           end else state <= RX_IDLE;
@@ -341,7 +339,7 @@ module tcp_arbiter #(
   tcp_sm sm (
       .clk(clk),
       .rst(rst),
-      .tcb_state(tcb_state),
+      .i_tcb_state(tcb_state),
       .tcb_ack_num(tcb_pkt_sel.ack_num),
       .tcb_sequence_num(tcb_pkt_sel.sequence_num),
       .tcb_expected_ack_num(tcb_expected_ack_num),

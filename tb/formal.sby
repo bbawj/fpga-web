@@ -5,6 +5,7 @@ uart
 fifo
 mdio
 sdram
+tcp_sm
 tcb
 
 [options]
@@ -14,6 +15,7 @@ uart: mode prove
 fifo: mode prove
 mdio: mode prove
 sdram: mode prove
+tcp_sm: mode prove
 tcb: mode cover
 depth 10
 
@@ -21,7 +23,7 @@ multiclock on
 
 [engines]
 tcb: smtbmc
-fifo: abc pdr
+abc pdr
 
 [script]
 arp_encode: read -formal arp_encode.sv
@@ -53,6 +55,10 @@ mdio: tribuf -formal
 sdram: read -formal -sv sdram_ctrl.sv
 sdram: prep -top sdram_ctrl
 
+tcp_sm: read -sv tcp.sv
+tcp_sm: read -formal tcp_sm.sv
+tcp_sm: prep -top tcp_sm
+
 tcb: read -sv tcp.sv
 tcb: read -sv fifo.sv
 tcb: read -sv lfsr_rng.sv
@@ -74,4 +80,5 @@ tcb: prep -top tcb
 ../rtl/uart.sv
 ../rtl/utils.svh
 ../rtl/tcp.sv
+../rtl/tcp_sm.sv
 ../rtl/to_ack_fifo.sv

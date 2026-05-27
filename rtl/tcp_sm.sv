@@ -2,7 +2,7 @@
 module tcp_sm (
     input clk,
     input rst,
-    input tcp::CONN_STATE tcb_state,
+    input tcp::CONN_STATE i_tcb_state,
     input [31:0] tcb_ack_num,
     input [31:0] tcb_sequence_num,
     input [31:0] tcb_expected_ack_num,
@@ -30,12 +30,14 @@ module tcp_sm (
     output reg accept_payload
 );
 
+  tcp::CONN_STATE tcb_state;
   reg valid = 0;
   reg i_flags_has_fin, i_flags_has_ack, i_flags_has_rst, i_flags_is_syn;
   reg seq_match, ack_match, ack_ge, has_payload;
   always @(posedge clk) begin
     valid <= is_rx;
     if (is_rx) begin
+      tcb_state       <= i_tcb_state;
       i_flags_has_fin <= (i_flags & tcp::FIN) != '0;
       i_flags_has_ack <= (i_flags & tcp::ACK) != '0;
       i_flags_has_rst <= (i_flags & tcp::RST) != '0;
@@ -65,13 +67,15 @@ module tcp_sm (
       clear_ack_en <= '0;
       case (tcb_state)
         tcp::LISTEN: begin
-          next_state <= tcp::LISTEN;
           if (i_flags_is_syn) begin
             ack_op <= 2'b01;
             seq_op <= 2'b01;
             next_state <= tcp::SYN_RECV;
-            reject_payload <= 1'b1;
             send_ack <= 1'b1;
+            reject_payload <= 1'b1;
+          end else begin
+            next_state <= tcp::LISTEN;
+            reject_payload <= 1'b1;
           end
         end
         tcp::SYN_RECV: begin
@@ -106,12 +110,12 @@ module tcp_sm (
             reject_payload <= 1'b1;
           end
 
-          if (i_flags_has_fin) begin
+          if (i_flags_has_rst) begin
+            next_state <= tcp::LISTEN;
+          end else if (i_flags_has_fin) begin
             ack_op <= 2'b01;
             next_state <= tcp::LASTACK;
             send_ack <= 1'b1;
-          end else if (i_flags_has_rst) begin
-            next_state <= tcp::LISTEN;
           end else next_state <= tcp::ESTABLISHED;
         end
         tcp::LASTACK: begin
@@ -141,9 +145,24 @@ module tcp_sm (
           end
         end
         default: begin
+          next_state <= tcp::LISTEN;
         end
       endcase
     end
   end
 
+`ifdef FORMAL
+  // initial assume (rst);
+  reg f_past_valid;
+  initial f_past_valid = 1'b0;
+  always_comb begin
+    assume (tcb_state <= tcp::LASTACK);
+  end
+  always @(posedge clk) begin
+    if (rst) f_past_valid <= 1;
+    // tcp_sm should always provide reject_payload or accept_payload so that
+    // arbiter does not get stuck waiting
+    if (f_past_valid && !$past(rst) && $past(valid)) assert (reject_payload || accept_payload);
+  end
+`endif
 endmodule

@@ -3,6 +3,7 @@ import cocotb
 from cocotb.clock import Timer
 import asyncio
 from scapy.all import Raw, Ether, TCP, IP, TCP_client, Padding, RandString
+from scapy.automaton import ATMT
 from cocotb.triggers import RisingEdge, ReadWrite, with_timeout
 from multiprocessing import Queue
 from cocotb.types import LogicArray
@@ -265,6 +266,8 @@ class TCP_client_sim(TCP_client):
         try:
             super().run(wait=False)
             super()._do_control(*args, **kargs)
+            # used to raise outstanding exceptions
+            super().run(wait=True)
         # block asyncio cancelled from propagating as cocotb absorbs the error and reports it as a failed test
         except asyncio.CancelledError:
             pass
@@ -293,6 +296,20 @@ class TCP_client_sim(TCP_client):
         pass
 
 
+class TCP_rst_client(TCP_client_sim):
+    @ATMT.condition(TCP_client_sim.STOP)
+    def stop_requested(self):
+        raise self.CLOSED()
+
+    def stop_send_finack(self):
+        pass
+
+    @ATMT.action(stop_requested)
+    def stop_send_rst(self):
+        self.l4[TCP].flags = "R"
+        self.send(self.l4)
+
+
 class PayloadLossyClient(TCP_client_sim):
     """
     Only drops packets with payload
@@ -300,6 +317,17 @@ class PayloadLossyClient(TCP_client_sim):
 
     def master_filter(self, pkt):
         if len(pkt[TCP].payload) > 0:
+            return False
+        return super().master_filter(pkt)
+
+
+class SynAckLossyClient(TCP_client_sim):
+    """
+    Only drops SYN-ACK packet
+    """
+
+    def master_filter(self, pkt):
+        if pkt[TCP].flags == "SA":
             return False
         return super().master_filter(pkt)
 

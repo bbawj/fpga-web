@@ -7,7 +7,7 @@ from cocotb.clock import Clock, Timer
 from cocotb.utils import get_sim_steps
 from cocotb_tools.runner import get_runner
 from scapy.all import Raw, RandString, Ether, TCP, IP
-from tcp.utils import TCPIntegrated, TCP_client_sim, PacketGen, PayloadLossyClient
+from tcp.utils import TCPIntegrated, TCP_client_sim, PacketGen, PayloadLossyClient, TCP_rst_client
 from cocotbext.eth import GmiiFrame, RgmiiPhy
 
 LOC_MAC_ADDR = "DEADBEEFCAFE"
@@ -153,7 +153,7 @@ async def tcp_connect_multi(dut):
 
 
 @cocotb.test()
-async def tcp_lossy(dut):
+async def tcp_lossy_payload(dut):
     speed_100 = os.getenv("SPEED_100M", None)
     tb = TB(dut, speed_100 is not None)
 
@@ -174,7 +174,35 @@ async def tcp_lossy(dut):
     await Timer(10000, "ns")
 
 
+@cocotb.test()
+async def tcp_lossy_synack(dut):
+    pass
+
+
+@cocotb.test()
+async def tcp_rst_in_established(dut):
+    speed_100 = os.getenv("SPEED_100M", None)
+    tb = TB(dut, speed_100 is not None)
+
+    await tb.reset()
+    client_ref = []
+    client_ip = "192.168.1.1"
+    client_port = 5000
+    gen = PacketGen(client_ip, client_port)
+    tcp = TCPIntegrated(tb, True, dst_mac, src_mac)
+    cocotb.start_soon(cocotb.task.bridge(TCP_rst_client)(
+        tcp, client_ref, False, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
+    await Timer(5000, "ns")
+    client_ref[0].stop(wait=False)
+    await Timer(5000, "ns")
+    cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
+        tcp, client_ref, False, server_ip, server_port, client_ip, client_port + 123, external_fd={"tcp": gen}))
+    await Timer(5000, "ns")
+    assert False
+
 # @cocotb.test()
+
+
 def check_check(dut):
     b = "b025aa3306fedeadbeefcafe0800450002a80001400040065ef269696969c0a845e21f90a1dcea449c16e5f36332501805b828c000003c21444f43545950452068746d6c3e0a3c68746d6c206c616e673d22656e223e0a3c686561643e0a202020203c6d65746120636861727365743d225554462d38223e0a202020203c6d657461206e616d653d2276696577706f72742220636f6e74656e743d2277696474683d6465766963652d77696474682c20696e697469616c2d7363616c653d312e30223e0a202020203c7469746c653e50616765204e6f7420466f756e643c2f7469746c653e0a202020203c7374796c653e0a2020202020202020626f6479207b20746578742d616c69676e3a2063656e7465723b2070616464696e673a2031353070783b20666f6e742d66616d696c793a2073616e732d73657269663b207d0a20202020202020206831207b20666f6e742d73697a653a20353070783b207d0a2020202020202020626f6479207b20666f6e742d73697a653a20323070783b20636f6c6f723a20233333333b207d0a202020202020202061207b20636f6c6f723a20233030376266663b20746578742d6465636f726174696f6e3a206e6f6e653b207d0a2020202020202020613a686f766572207b20746578742d6465636f726174696f6e3a20756e6465726c696e653b207d0a202020203c2f7374796c653e0a3c2f686561643e0a3c626f64793e0a202020203c6469763e0a20202020202020203c68313e3430343c2f68313e0a20202020202020203c703e536f7272792c20746865207061676520796f75277265206c6f6f6b696e6720666f7220646f65736e27742065786973742e3c2f703e0a20202020202020203c703e3c6120687265663d222f223e52657475726e20486f6d653c2f613e3c2f703e0a202020203c2f6469763e0a3c2f626f64793e0a3c2f68746d6c3e0a2ab37c1d"
 
