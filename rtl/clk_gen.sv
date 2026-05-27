@@ -11,7 +11,7 @@ module clk_gen #(
     output wire sysclk,
     output wire txc,
     output wire spi,
-    output reg  clk_locked  // clock locked?
+    output reg  clk_locked = 0  // clock locked?
 );
 
   wire locked;  // unsynced lock signal
@@ -95,7 +95,7 @@ module clk_gen #(
   // end
 
   // ensure clock lock is synced with output clock
-  reg locked_sync;
+  reg locked_sync = 0;
   always @(posedge sysclk) begin
     locked_sync <= locked;
     clk_locked  <= locked_sync;

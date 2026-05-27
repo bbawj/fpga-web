@@ -1,15 +1,18 @@
+`default_nettype none
 /**
 * Takes a input signal and converts it to a pulse on an positive edge transition
 */
 module pulse_gen (
-  input clk,
-  input sig,
-  output reg q
-  );
+    input clk,
+    input rst,
+    input sig,
+    output reg q = 0
+);
 
-  reg [1:0] state;
+  reg [1:0] state = '0;
   always @(posedge clk) begin
-    state <= {state[0], sig};
+    if (rst) state <= '0;
+    else state <= {state[0], sig};
   end
 
   always @* begin

@@ -21,18 +21,19 @@ module flash2sdram #(
 
     output reg spi_ready,
     output reg [31:0] spi_32,
-    output reg done
+    output reg done = 0
 );
   // 32-bit words
   localparam NUM_WORD = NUM_BYTES / 4;
 
-  reg [7:0] write_counter = 0, read_counter = 0;
+  reg [15:0] write_counter = 0, read_counter = 0;
   reg [1:0] spi_counter = 0;
   reg [1:0] state = 0;
   // reg spi_ready = 0;
   always @(posedge clk) begin
     if (rst) begin
       state <= 0;
+      done <= 0;
       spi_counter <= 0;
       spi_ready <= 0;
       write_counter <= 0;

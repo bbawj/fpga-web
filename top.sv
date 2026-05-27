@@ -55,24 +55,22 @@ USRMCLK u1(.USRMCLKI(spiclk), .USRMCLKTS(~pll_locked));
 
 wire rst;
 assign led = ~rst && (flash_done ? blinking : 1'b1);
-areset _areset(.clk(sysclk), .rst_n(button & pll_locked), .rst(rst));
-  // reg [31:0] cache_rd_data;
-  // reg cache_rd_valid;
-  // cache c (
-  //     .clk(clk),
-  //     .rst(rst),
-  //     // Do not go to cache if tcp_echo_en
-  //     .rd_en(tcp_tx_payload_rd_en && !tcp_echo_en),
-  //     .rd_ad(tcp_tx_payload_rd_ad),
-  //     .rd_size(tcp_tx_payload_rd_size),
-  //     .rd_valid(cache_rd_valid),
-  //     .rd_data(cache_rd_data),
-  //     .sdram_rd_valid(mem_ctrl_rd_valid),
-  //     .sdram_rd_granted(mem_ctrl_rd_granted),
-  //     .sdram_rd_data(mem_ctrl_rd_data),
-  //     .sdram_rd_req(mem_ctrl_rd_req),
-  //     .sdram_rd_ad(mem_ctrl_rd_ad)
-  // );
+
+// Force a minimum reset pulse width regardless of pll_locked behavior
+reg [15:0] init_counter = '0;  // initialised in bitstream
+reg init_wait_done = 0;
+always @(posedge sysclk) begin
+    if (!pll_locked) begin
+        init_counter  <= '0;
+        init_wait_done <= 0;
+    end else if (init_counter != 16'hFFFF) begin
+        init_counter  <= init_counter + 1;
+        init_wait_done <= 0;
+    end else begin
+        init_wait_done <= 1;
+    end
+end
+areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
 
   reg sdram_wr_req, sdram_ready;
   wire sdram_wr_granted;
@@ -112,6 +110,7 @@ areset _areset(.clk(sysclk), .rst_n(button & pll_locked), .rst(rst));
   reg init_pulse;
   pulse_gen pulse (
       .clk(sysclk),
+      .rst(rst),
       .sig(~rst && sdram_ready),
       .q  (init_pulse)
   );
@@ -120,13 +119,13 @@ areset _areset(.clk(sysclk), .rst_n(button & pll_locked), .rst(rst));
       .DEPTH(10)
   ) del (
       .clk(sysclk),
-      .rst('0),
+      .rst(rst),
       .data_in(init_pulse),
       .data_out(spi_en)
   );
 
-  reg spi_en, spi_data_valid;
-  reg [7:0] spi_data;
+  wire spi_en, spi_data_valid;
+  wire [7:0] spi_data;
   spi_master spi (
       .clk(sysclk),
       .spi_sclk(spiclk),
@@ -144,7 +143,7 @@ areset _areset(.clk(sysclk), .rst_n(button & pll_locked), .rst(rst));
       .o_data(spi_data)
   );
 
-  reg spi_ready, flash_done;
+  wire spi_ready, flash_done;
   reg [31:0] spi_32;
   flash2sdram #(
       .NUM_BYTES(NUM_BYTES)

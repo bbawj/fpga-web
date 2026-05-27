@@ -1,8 +1,8 @@
 module areset (
-  input wire clk,
-  input wire rst_n,
-  output wire rst
-  );
+    input  wire clk,
+    input  wire rst_n,
+    output wire rst
+);
 
   reg [17:0] debounce_count = '0;
   reg rst_n_debounced = 0;
