@@ -116,11 +116,9 @@ module tcp_sm (
         end
         tcp::LASTACK: begin
           reject_payload <= 1'b1;
-          if (i_flags_has_rst) begin
+          if (i_flags_has_rst || (ack_match && i_flags_has_ack)) begin
             next_state <= tcp::LISTEN;
-          end else if (ack_match && i_flags_has_ack) begin
-            next_state <= tcp::LISTEN;
-          end else if (i_flags_has_fin) begin
+          end else begin
             next_state <= tcp::LASTACK;
             send_ack   <= 1'b1;
           end

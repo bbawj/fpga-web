@@ -175,6 +175,9 @@ module fifo #(
 
     if (f_past_valid && !$past(rst) && $past(rd_en) && $past(empty))
       assert (rd_ptr == $past(rd_ptr));
+
+    if (f_past_valid && count == 0) assert (empty);
+    if (f_past_valid && count != 0) assert (!empty);
   end
 `endif
 endmodule

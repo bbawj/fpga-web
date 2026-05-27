@@ -27,7 +27,7 @@ module tcb #(
     // 2. If arbiter wrote into the to_send FIFO
     // 3. If sending a packet in non-echo mode, this re-asserts when
     // internally transition into FINWAIT for HTTP1.0 closing.
-    output pkt_pending,
+    output reg pkt_pending,
     output reg [31:0] o_expected_ack,
 
     output tcp::CONN_STATE o_state,
@@ -40,8 +40,13 @@ module tcb #(
   tcp::CONN_STATE prev_state;
   reg state_rst;
   always @(posedge clk) begin
-    prev_state <= tcb_mem.state;
-    state_rst  <= prev_state != tcp::LISTEN && tcb_mem.state == tcp::LISTEN;
+    if (rst) begin
+      prev_state <= tcp::LISTEN;
+      state_rst  <= 0;
+    end else begin
+      prev_state <= tcb_mem.state;
+      state_rst  <= prev_state != tcp::LISTEN && tcb_mem.state == tcp::LISTEN;
+    end
   end
 
   /**
@@ -240,7 +245,7 @@ module tcb #(
 `else
   localparam int FIN_TIMEOUT = 12500;
 `endif
-  reg fin_timeout;
+  wire fin_timeout;
   assign fin_timeout = fin_timeout_counter == '0;
   reg [31:0] fin_timeout_counter;
   always @(posedge clk) begin
@@ -384,5 +389,16 @@ module tcb #(
       .empty(to_ack_empty),
       .retransmit_pending(to_ack_retransmit_pending)
   );
+
+`ifdef FORMAL
+  // initial assume (rst);
+  reg f_past_valid;
+  initial f_past_valid = 1'b0;
+  always @(posedge clk) begin
+    if (rst) f_past_valid <= 1;
+    if (f_past_valid && !$past(state_rst) && !rst && !$past(rst) && !$past(to_send_empty))
+      cover ($stable(serial_state));
+  end
+`endif
 
 endmodule

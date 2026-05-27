@@ -251,42 +251,43 @@ module tcp_arbiter #(
     end
   end
 
-  // FIXME: latch all the SM updates on reject/accept payload to break routing
-  // assign tcb_rx_sel = (sm_reject_payload | sm_accept_payload) ? target_tcb : 0;
+  always @(posedge clk) begin
+    rdy <= state == RX_IDLE;
+  end
+
   logic [1:0] target_tcb = 0;
+  always @(posedge clk) begin
+    if (rst || state == RX_IDLE) target_tcb <= 0;
+    else if (state == SELECT_TCB) begin
+      // TODO: choose correct target id
+      target_tcb <= 1;
+    end
+  end
+
   always @(posedge clk) begin
     if (rst) begin
       state <= RX_IDLE;
       tcp_payload_valid <= 0;
-      target_tcb <= 0;
-      rdy <= '0;
+      tcp_payload_err <= 0;
+      tcp_sm_is_rx <= 0;
+      tcp_sm_is_tx <= 0;
     end else begin
       case (state)
         RX_IDLE: begin
-          target_tcb <= 0;
-          rdy <= '1;
           tcp_payload_valid <= 0;
-          tcp_payload_err <= 0;
+          tcp_payload_err   <= 0;
           if (is_rx) begin
-            rdy   <= 0;
             state <= SELECT_TCB;
             // TODO: should block new connections if out of TCBs
           end
         end
         SELECT_TCB: begin
-          // TODO: choose correct target id
-          target_tcb <= 1;
           rx_packet_q <= rx_packet;
           state <= RX_PACKET;
         end
         RX_PACKET: begin
           tcb_pkt_sel <= tcb_pkt;
-          if (tcb_pkt.peer_port == rx_packet.peer_port && tcb_pkt.peer_addr == rx_packet.peer_addr) begin
-            tcp_sm_is_rx <= 1;
-            state <= WAIT_SM_RX_TRANSITION;
-          end else if (tcb_state == tcp::LISTEN) begin
-            // no matching TCB, create a new one
-            // for now we do no validation of other fields, assume they are 0
+          if (tcb_state == tcp::LISTEN || (tcb_pkt.peer_port == rx_packet.peer_port && tcb_pkt.peer_addr == rx_packet.peer_addr)) begin
             tcp_sm_is_rx <= 1;
             state <= WAIT_SM_RX_TRANSITION;
           end else state <= RX_IDLE;
@@ -296,7 +297,6 @@ module tcp_arbiter #(
           // TODO: copy to SDRAM
 
           if (sm_accept_payload) begin
-            rdy <= 1;
             tcp_payload_valid <= 1'b1;
             state <= RX_IDLE;
             if (tcp_echo_en) begin
@@ -307,7 +307,6 @@ module tcp_arbiter #(
             tcp_payload_valid <= 1'b1;
             tcp_payload_err <= 1'b1;
             state <= RX_IDLE;
-            rdy <= 1;
           end
         end
         TX_ECHO_PACKET: begin
@@ -319,7 +318,6 @@ module tcp_arbiter #(
         WAIT_ECHO: begin
           if (echo_granted) begin
             state <= RX_IDLE;
-            rdy <= 1;
             echo_pending <= 1'b0;
           end
         end
@@ -364,4 +362,14 @@ module tcp_arbiter #(
       .reject_payload(sm_reject_payload)
   );
 
+`ifdef FORMAL
+  // initial assume (rst);
+  reg f_past_valid;
+  initial f_past_valid = 1'b0;
+  always @(posedge clk) begin
+    if (rst) f_past_valid <= 1;
+    if (f_past_valid && pkt_pending) cover (empty);
+    if (f_past_valid && count != 0) assert (!empty);
+  end
+`endif
 endmodule
