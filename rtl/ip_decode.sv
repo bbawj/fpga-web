@@ -61,7 +61,7 @@ module ip_decode (
 
       working <= {working[23:0], din};
       done <= counter >= 16'd4 * ihl - 16'd1 && counter < packet_size - 1;
-      counter <= counter + 1;
+      counter <= counter == 'd20 ? counter : counter + 1;
     end
   end
 

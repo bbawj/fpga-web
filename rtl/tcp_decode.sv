@@ -128,14 +128,26 @@ module tcp_decode #(
   end
 
   always @(posedge clk) begin
+    if (state == DONE) begin
+      done <= 1'b1;
+      err  <= !(working_checksum == '1);
+    end else begin
+      done <= '0;
+      err  <= '0;
+    end
+  end
+
+  always @(posedge clk) begin
+    if (prev_state == IDLE) payload_size <= ip_payload_size - ('d4 * 16'(ip_ihl));
+    else if (prev_state == FLAGS) payload_size <= payload_size - 16'(data_offset) * 4;
+  end
+
+  always @(posedge clk) begin
     payload_valid <= '0;
     case (state)
       IDLE: begin
-        done <= '0;
-        err  <= '0;
         if (valid) begin
           logic [17:0] sum;
-          payload_size <= ip_payload_size - (4'd4 * ip_ihl);
           sum = 18'd6 + {2'b0, ip_da[15:0]} + {2'b0, ip_da[31:16]} + {2'b0, ip_sa[15:0]} + {2'b0, ip_sa[31:16]}
           + {2'b0, (ip_payload_size - 4'd4 * ip_ihl)};
           sum = {2'b0, sum[15:0]} + {16'b0, sum[17:16]};
@@ -143,7 +155,6 @@ module tcp_decode #(
           working_checksum <= sum[15:0];
         end
       end
-      FLAGS: payload_size <= payload_size - data_offset * 4;
       PAYLOAD: begin
         //urg <= working[15:0];
         payload <= din;
@@ -154,10 +165,6 @@ module tcp_decode #(
         // TODO: check overshoot MSS
         if (counter == MSS + 'd20) begin
         end
-      end
-      DONE: begin
-        done <= 1'b1;
-        err  <= !(working_checksum == '1);
       end
       default: begin
       end

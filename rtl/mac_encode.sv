@@ -109,7 +109,7 @@ module mac_encode #(
   // Input latch
   // -------------------------------------------------------------------------
   always_ff @(posedge clk) begin
-    if (state == S_PRE_0) begin
+    if (en) begin
       ethertype <= i_ethertype;
       mac_dest  <= i_mac_dest;
     end
