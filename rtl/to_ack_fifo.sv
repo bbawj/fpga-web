@@ -17,7 +17,7 @@ module to_ack_fifo (
     output reg [31:0] to_ack_ack_num,
     output reg [7:0] to_ack_flags,
     output reg empty,
-    output reg retransmit_pending
+    output retransmit_pending
 );
   reg rd_en;
   fifo #(

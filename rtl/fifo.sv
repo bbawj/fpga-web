@@ -49,7 +49,9 @@ module fifo #(
       end
 
       if (LOOKAHEAD) begin : g_lookahead
-        assign dout = mem[rd_ptr[ADDR_WIDTH-1:0]];
+        always @(posedge clk) begin
+          dout <= mem[rd_ptr[ADDR_WIDTH-1:0]];
+        end
       end else begin : g_standard
         always @(posedge clk) begin
           if (rd_en && !empty) begin
@@ -77,7 +79,7 @@ module fifo #(
   endgenerate
   // additional bit here allows to differentiate between full and empty
   reg [ADDR_WIDTH:0] wr_ptr = '0, rd_ptr = '0;
-  reg [ADDR_WIDTH:0] next_wr_ptr, next_rd_ptr;
+  wire [ADDR_WIDTH:0] next_wr_ptr, next_rd_ptr;
   assign next_wr_ptr = wr_ptr + 1;
   assign next_rd_ptr = rd_ptr + 1;
   // Status flags

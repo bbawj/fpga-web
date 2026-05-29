@@ -5,9 +5,9 @@ PACK=$(TOOLPATH)/ecppack
 LOADER=$(TOOLPATH)/openocd
 SOURCEDIR=rtl
 SOURCES = $(SOURCEDIR)/areset.sv \
-	$(SOURCEDIR)/to_ack_fifo.sv \
 	$(SOURCEDIR)/async_fifo_2deep.sv \
 	$(SOURCEDIR)/tcp.sv \
+	$(SOURCEDIR)/to_ack_fifo.sv \
 	$(SOURCEDIR)/tcb.sv \
 	$(SOURCEDIR)/ram_dp.sv \
 	$(SOURCEDIR)/delay.sv \
