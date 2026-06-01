@@ -221,7 +221,7 @@ module mac #(
   tcp_decode tcp_dec (
       .clk(phy_rxc),
       .rst(rst),
-      .valid(ip_done),
+      .valid(ip_done && ip_valid),
       .din(rxd_delayed),
       .ip_sa(ip_sa),
       .ip_da(ip_da),

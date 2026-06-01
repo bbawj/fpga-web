@@ -112,7 +112,7 @@ module mac_tx #(
   end
   always @(posedge clk) begin
     if (checksum_stage_valid) begin
-      tcp_encode_initial_checksum <= checksum_stage1[15:0] + {14'b0, checksum_stage1[17:16]};
+      tcp_encode_initial_checksum <= tcp_echo_en ? tcp_echo_checksum : checksum_stage1[15:0] + {14'b0, checksum_stage1[17:16]};
     end else if (tcp_outgoing_buffer_start) tcp_encode_initial_checksum <= '0;
   end
 
@@ -259,7 +259,7 @@ module mac_tx #(
       .ack_num(tcp_encode_ack_num),
       .flags(tcp_encode_flags),
       .window(tcp_encode_window),
-      .initial_checksum(tcp_echo_en ? tcp_echo_checksum : tcp_encode_initial_checksum),
+      .initial_checksum(tcp_encode_initial_checksum),
       // ebr has 1 cycle read latency so "pre_done_1" is required to meet
       // timing and ensure payload from ebr is ready
       .pre_done_2(tcp_encode_done_pre),

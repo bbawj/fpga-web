@@ -35,9 +35,9 @@ module tcp_decode #(
 
   reg [15:0] working_checksum = '0;
   reg [15:0] checksum = '0;
-  reg [31:0] working = '0;
-  reg [15:0] counter = '0;
-  reg [ 3:0] data_offset;
+  reg [31:0] working = '0, working_q;
+  reg [15:0] counter = '0, counter_q;
+  reg [3:0] data_offset;
 
   typedef enum {
     IDLE,
@@ -59,12 +59,16 @@ module tcp_decode #(
 
   always @(posedge clk) begin
     if (rst) begin
-      state   <= IDLE;
+      state <= IDLE;
       counter <= '0;
+      counter_q <= 0;
+      working_q <= 0;
     end else begin
       counter <= (state == IDLE) ? 'd1 : counter + 'd1;
+      counter_q <= counter;
       working <= {working[23:0], din};
-      state   <= next_state;
+      working_q <= working;
+      state <= next_state;
     end
   end
 
@@ -118,11 +122,12 @@ module tcp_decode #(
     case (state)
       IDLE: payload_checksum <= '0;
       PAYLOAD:
-      if (counter[0] == 1'b0) payload_checksum <= ones_comp(payload_checksum, working[15:0]);
+      if (valid && counter_q[0] == 1'b0)
+        payload_checksum <= ones_comp(payload_checksum, working_q[15:0]);
       // odd-sized payload, pad with zeroes for checksum calc
       DONE:
-      if (counter[0] == 1'b0)
-        payload_checksum <= ones_comp(payload_checksum, {working[15:8], 8'b0});
+      if (counter_q[0] == 1'b1)
+        payload_checksum <= ones_comp(payload_checksum, {working_q[23:16], 8'b0});
       default: payload_checksum <= payload_checksum;
     endcase
   end
