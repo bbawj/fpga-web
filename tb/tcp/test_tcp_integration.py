@@ -14,6 +14,8 @@ LOC_MAC_ADDR = "DEADBEEFCAFE"
 MAC_SRC = "b025aa3306fe"
 server_ip = "105.105.105.105"
 server_port = 8080
+client_ip = "192.168.1.1"
+client_port = 5000
 dst_mac = ":".join([LOC_MAC_ADDR[i:i+2]
                     for i in range(0, len(LOC_MAC_ADDR)-1, 2)])
 src_mac = ":".join([MAC_SRC[i:i+2]
@@ -97,8 +99,6 @@ async def tcp_integration_full(dut):
     await tb.reset()
     tb.dut.tcp_echo_en.value = 1
     client_ref = []
-    client_ip = "192.168.1.1"
-    client_port = 5000
     gen = PacketGen(client_ip, client_port)
     tcp = TCPIntegrated(tb, True, dst_mac, src_mac)
     cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
@@ -132,8 +132,6 @@ async def tcp_connect_multi(dut):
     await tb.reset()
     tb.dut.tcp_echo_en.value = 1
     client_ref = []
-    client_ip = "192.168.1.1"
-    client_port = 5000
     gen = PacketGen(client_ip, client_port)
     tcp = TCPIntegrated(tb, True, dst_mac, src_mac)
     tcp2 = TCPIntegrated(tb, True, dst_mac, src_mac, dont_read=True)
@@ -160,15 +158,13 @@ async def tcp_lossy_payload(dut):
     await tb.reset()
     tb.dut.tcp_echo_en.value = 1
     client_ref = []
-    client_ip = "192.168.1.1"
-    client_port = 5000
     gen = PacketGen(client_ip, client_port)
     tcp = TCPIntegrated(tb, True, dst_mac, src_mac)
     cocotb.start_soon(cocotb.task.bridge(PayloadLossyClient)(
         tcp, client_ref, False, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
     await Timer(5000, "ns")
     gen.from_bench.put(Raw(RandString(size=21)))
-    await Timer(25, "us")
+    await Timer(45, "us")
     assert tcp.recv_count == 4
     client_ref[0].stop(wait=False)
     await Timer(10000, "ns")
@@ -180,14 +176,33 @@ async def tcp_lossy_synack(dut):
 
 
 @cocotb.test()
+async def tcp_idle_timeout(dut):
+    """
+    TCB should transition from ESTABLISHED to FINWAIT after at maximum IDLE_TIMEOUT
+    IDLE timeout is around 100us
+    """
+    speed_100 = os.getenv("SPEED_100M", None)
+    tb = TB(dut, speed_100 is not None)
+
+    await tb.reset()
+    client_ref = []
+    gen = PacketGen(client_ip, client_port)
+    tcp = TCPIntegrated(tb, True, dst_mac, src_mac)
+    cocotb.start_soon(cocotb.task.bridge(TCP_rst_client)(
+        tcp, client_ref, False, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
+    await Timer(2500, "ns")
+    assert tcp.recv_count == 1
+    await Timer(110, "us")
+    assert tcp.recv_count == 3
+
+
+@cocotb.test()
 async def tcp_rst_in_established(dut):
     speed_100 = os.getenv("SPEED_100M", None)
     tb = TB(dut, speed_100 is not None)
 
     await tb.reset()
     client_ref = []
-    client_ip = "192.168.1.1"
-    client_port = 5000
     gen = PacketGen(client_ip, client_port)
     tcp = TCPIntegrated(tb, True, dst_mac, src_mac)
     cocotb.start_soon(cocotb.task.bridge(TCP_rst_client)(

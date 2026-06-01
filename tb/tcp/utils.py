@@ -459,7 +459,7 @@ class TCPIntegrated(TCPSimSock):
             if self.dont_read:
                 await Timer(10, "ns")
                 continue
-            rx_frame = await with_timeout(self.tb.rgmii_phy.tx.recv(), 50000, "ns")
+            rx_frame = await with_timeout(self.tb.rgmii_phy.tx.recv(), 150, "us")
             rx = Ether(rx_frame.get_payload())
             cocotb.log.info("packet received from HDL")
             self.recv_count += 1

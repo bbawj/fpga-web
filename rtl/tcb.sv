@@ -235,18 +235,22 @@ module tcb #(
       fin_pending_q <= 0;
     end else begin
       fin_pending_q <= fin_pending;
-      if (tcb_mem.state != tcp::ESTABLISHED) begin
-        fin_pending <= 0;
+      if (tcb_mem.state == tcp::FINWAIT) begin
+        fin_pending <= 1'b1;
       end else if (tcb_mem.state == tcp::ESTABLISHED && !echo_en && serial_empty && actual_payload_serialized && to_ack_empty && to_send_empty) begin
         fin_pending <= 1'b1;
+      end else if (tcb_mem.state != tcp::ESTABLISHED) begin
+        fin_pending <= 0;
       end
     end
   end
 
 `ifdef SYNTHESIS
   localparam int FIN_TIMEOUT = 'd1250000000;
+  localparam int IDLE_TIMEOUT = 'd1250000000;
 `else
   localparam int FIN_TIMEOUT = 'd12500;
+  localparam int IDLE_TIMEOUT = 'd12500;
 `endif
   wire fin_timeout;
   assign fin_timeout = fin_timeout_counter == '0;
@@ -256,18 +260,33 @@ module tcb #(
     else fin_timeout_counter <= FIN_TIMEOUT;
   end
 
+  wire idle_timeout;
+  assign idle_timeout = idle_timeout_counter == '0;
+  reg [31:0] idle_timeout_counter;
+  always @(posedge clk) begin
+    if (tcb_mem.state == tcp::ESTABLISHED && to_send_empty)
+      idle_timeout_counter <= idle_timeout_counter == 0 ? 0 : idle_timeout_counter - 1;
+    else idle_timeout_counter <= IDLE_TIMEOUT;
+  end
+
+  always @(posedge clk) begin
+    if (rx_update_en) begin
+      tcb_mem.peer_addr <= i_pkt.peer_addr;
+      tcb_mem.peer_port <= i_pkt.peer_port;
+    end
+  end
+
+  // TODO: send RST on change to listen
   always @(posedge clk) begin
     if (rst) begin
       tcb_mem.state <= tcp::LISTEN;
     end else if (rx_update_en) begin
-      tcb_mem.peer_addr <= i_pkt.peer_addr;
-      tcb_mem.peer_port <= i_pkt.peer_port;
       tcb_mem.state <= i_state;
     end else if (tcb_mem.state == tcp::FINWAIT && fin_timeout) begin
       tcb_mem.state <= tcp::LISTEN;
-    end else if (tcb_mem.state == tcp::ESTABLISHED && !echo_en && serial_empty && actual_payload_serialized && to_ack_empty) begin
-      // HTTP 1.0: we tag a FIN along with the HTTP payload
-      tcb_mem.state <= tcp::FINWAIT;
+    end else if (tcb_mem.state == tcp::ESTABLISHED && !echo_en) begin
+      if (idle_timeout || (serial_empty && actual_payload_serialized && to_ack_empty))
+        tcb_mem.state <= tcp::FINWAIT;
     end
   end
 

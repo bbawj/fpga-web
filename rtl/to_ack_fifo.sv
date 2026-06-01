@@ -116,7 +116,7 @@ module to_ack_fifo (
 `ifdef SYNTHESIS
   assign retransmit_pending = retransmit_timer == 'd1250000000;
 `else
-  assign retransmit_pending = retransmit_timer == 'd5000;
+  assign retransmit_pending = retransmit_timer == 'd2500;
 `endif
   reg [31:0] retransmit_timer;
   always @(posedge clk) begin
