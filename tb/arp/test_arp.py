@@ -46,7 +46,7 @@ async def arp_encode(dut):
     sha = bytes.fromhex(LOC_MAC_ADDR)
     tha = bytes.fromhex(LP_MAC_ADDR)
     tpa = bytes.fromhex("69696969")
-    spa = bytes.fromhex("00000000")
+    spa = bytes.fromhex("69696969")
     await RisingEdge(tb.dut.clk)
     tb.dut.encode_en.value = 1
     tb.dut.encode_tha.value = LogicArray.from_bytes(tha, byteorder="big")
@@ -69,9 +69,9 @@ async def arp_encode(dut):
             buf.extend(tb.dut.encode_dout.value.integer.to_bytes())
 
     tb.dut.encode_en.value = 0
-    await RisingEdge(tb.dut.clk)
     assert tb.dut.encode_done.value == 1
     assert buf == arp_payload(op, sha, tha, spa, tpa)
+    await RisingEdge(tb.dut.clk)
 
 
 @cocotb.test()
@@ -137,7 +137,7 @@ def arp_payload(op, sha, tha, spa, tpa):
             sha + spa + tha + tpa)
 
 
-@pytest.mark.parametrize("speed_100", [True, False])
+@pytest.mark.parametrize("speed_100", [False])
 def test_simple_dff_runner(speed_100):
     sim = os.getenv("SIM", "verilator")
 

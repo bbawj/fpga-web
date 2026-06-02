@@ -46,9 +46,7 @@ module arp_encode #(
   localparam [7:0] COUNT_TPA = 8'd28;
 `endif
 
-  typedef enum logic [7:0] {
-    S_IDLE,
-    S_HW_TYPE_0,    // 0x00
+  typedef enum {
     S_HW_TYPE_1,    // 0x01
     S_PROT_TYPE_0,  // 0x08
     S_PROT_TYPE_1,  // 0x00
@@ -78,10 +76,10 @@ module arp_encode #(
     S_TPA_3
   } state_t;
 
-  state_t       state;
-  state_t       next_state;
-  logic   [7:0] next_dout;
-  logic         next_done;
+  state_t       state = S_HW_TYPE_1;
+  state_t       next_state = S_HW_TYPE_1;
+  logic   [7:0] next_dout = 0;
+  logic         next_done = 0;
 
   always_comb begin
     next_state = state;

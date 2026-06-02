@@ -2,7 +2,7 @@ import pytest
 import cocotb
 import os
 from cocotbext.eth import GmiiFrame, RgmiiPhy
-from cocotb.triggers import RisingEdge, with_timeout, ReadWrite
+from cocotb.triggers import RisingEdge, with_timeout, ReadWrite, SimTimeoutError
 from cocotb.clock import Clock, Timer
 from cocotb.utils import get_sim_time, get_sim_steps
 from cocotb_tools.runner import get_runner
@@ -26,10 +26,10 @@ class TB:
 
         if speed_100:
             cocotb.start_soon(Clock(dut.clk, 40, units='ns').start())
-            cocotb.start_soon(self._run_clocks(dut.phy_txc, 90, 40))
+            cocotb.start_soon(self._run_clocks(dut.clk90, 90, 40))
         else:
             cocotb.start_soon(self._run_clocks(dut.clk, 0, 8))
-            cocotb.start_soon(self._run_clocks(dut.phy_txc, 90, 8))
+            cocotb.start_soon(self._run_clocks(dut.clk90, 90, 8))
         dut.rst.value = cocotb.handle.Immediate(1)
         self.rgmii_phy = RgmiiPhy(dut.phy_txd, dut.phy_txctl, dut.phy_txc,
                                   dut.phy_rxd, dut.phy_rxctl, dut.phy_rxc, dut.rst, speed=100e6 if speed_100 else 1000e6)
@@ -83,8 +83,8 @@ async def arp_reply(dut):
     spa = bytes.fromhex("c0a84564")
 
     test_data = bytes.fromhex(
-# "555555555555d5deadbeefcafeb025aa3306fe08060001080006040001b025aa3306fec0a84564000000000000696969690000000000000000")
-"555555555555d5deadbeefcafeb025aa3306fe08060001080006040001b025aa3306fec0a84564000000000000696969690000000000000000000000000000000000001616317900")
+        # "555555555555d5deadbeefcafeb025aa3306fe08060001080006040001b025aa3306fec0a84564000000000000696969690000000000000000")
+        "555555555555d5deadbeefcafeb025aa3306fe08060001080006040001b025aa3306fec0a84564000000000000696969690000000000000000000000000000000000001616317900")
 
     for i in range(2):
 
@@ -103,24 +103,26 @@ async def arp_reply(dut):
         assert rx_frame.check_fcs()
         assert rx_frame.error is None
 
+
+@cocotb.test()
+async def arp_reply_bad(dut):
+    speed_100 = os.getenv("SPEED_100M", None)
+    tb = TB(dut, speed_100 is not None)
+
+    await tb.reset()
     # ethertype set to 0x86dd
     bad_data = bytes.fromhex(
         "deadbeefcafeb025aa3306fe86dd0001080006040001b025aa3306fec0a84564DEADBEEFCAFE6969696900000000000000000000000000000000")
     test_frame = GmiiFrame.from_payload(bad_data)
+
+    # test_frame = GmiiFrame.from_payload(test_data)
     await tb.rgmii_phy.rx.send(test_frame)
-    await tb.rgmii_phy.rx.wait()
-    for i in range(2):
 
-        test_frame = GmiiFrame.from_payload(test_data)
-        await tb.rgmii_phy.rx.send(test_frame)
-
-        reply_op = bytes.fromhex("0002")
-        expected_data = mac_payload(
-            sha, tha, ether_type, arp_payload(reply_op, tha, sha, tpa, spa))
-        rx_frame = await with_timeout(tb.rgmii_phy.tx.recv(), 50000, "ns")
-        assert rx_frame.get_payload() == expected_data
-        assert rx_frame.check_fcs()
-        assert rx_frame.error is None
+    try:
+        await with_timeout(tb.rgmii_phy.tx.recv(), 50000, "ns")
+        assert False
+    except SimTimeoutError:
+        pass
 
 
 def arp_payload(op, sha, tha, spa, tpa):

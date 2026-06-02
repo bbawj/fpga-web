@@ -217,7 +217,8 @@ module mac_encode #(
   // Output + CRC input logic
   // -------------------------------------------------------------------------
   always_ff @(posedge clk) begin
-    if (state == S_SRC_5) send_next <= 1;
+    if (rst) send_next <= 0;
+    else if (state == S_SRC_5) send_next <= 1;
     else if (state == S_PAD || state == S_FCS_0) send_next <= 0;
   end
 
