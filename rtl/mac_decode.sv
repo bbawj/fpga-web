@@ -86,7 +86,7 @@ module mac_decode #(
   reg [15:0] counter = '0;
   reg [47:0] working;
 
-  mac_state_t next_state;
+  mac_state_t next_state, prev_state;
   always @(posedge clk) begin
     if (rst) begin
       state   <= IDLE;
@@ -99,7 +99,6 @@ module mac_decode #(
     end
   end
 
-  mac_state_t prev_state;
   always @(posedge clk) begin
     case (state)
       SOURCE: if (prev_state != state) da <= working;
@@ -115,6 +114,12 @@ module mac_decode #(
         ip_valid <= 0;
         arp_decode_valid <= 0;
         other_err <= '0;
+      end
+      PAYLOAD: begin
+        if (!rx_dv_realtime && rx_dv) begin
+          ip_valid <= 0;
+          arp_decode_valid <= 0;
+        end
       end
       ABORT: begin
         ip_valid <= 0;

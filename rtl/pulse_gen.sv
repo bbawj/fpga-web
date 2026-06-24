@@ -3,10 +3,10 @@
 * Takes a input signal and converts it to a pulse on an positive edge transition
 */
 module pulse_gen (
-    input clk,
-    input rst,
-    input sig,
-    output reg q = 0
+    input  wire clk,
+    input  wire rst,
+    input  wire sig,
+    output reg  q = 0
 );
 
   reg [1:0] state = '0;

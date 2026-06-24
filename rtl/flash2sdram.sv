@@ -5,17 +5,17 @@
 module flash2sdram #(
     parameter NUM_BYTES = 64
 ) (
-    input clk,
-    input rst,
-    input readback,
-    input spi_data_valid,
-    input [7:0] spi_data,
-    input sdram_wr_granted,
+    input wire clk,
+    input wire rst,
+    input wire readback,
+    input wire spi_data_valid,
+    input wire [7:0] spi_data,
+    input wire sdram_wr_granted,
     output reg sdram_wr_req,
     output reg [18:0] sdram_wr_ad,
     output reg [31:0] sdram_wr_data,
 
-    input sdram_rd_granted,
+    input wire sdram_rd_granted,
     output reg sdram_rd_req,
     output reg [18:0] sdram_rd_ad,
 
