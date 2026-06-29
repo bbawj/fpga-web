@@ -10,18 +10,15 @@ module ram_sp #(
     output reg [DATA_WIDTH-1:0] dout
 );
 
-  initial assert (ADDR_WIDTH != 0);
-  initial assert (DATA_WIDTH != 0);
-
   localparam SIZE =
     DATA_WIDTH == 1 ? 16384 :
     DATA_WIDTH == 2 ? 8192 :
-    DATA_WIDTH == 4 ? 4096 :
-    DATA_WIDTH == 9 ? 2048 :
-    DATA_WIDTH == 18 ? 1024:
-    DATA_WIDTH == 36 ? 512: 0;
+    DATA_WIDTH <= 4 ? 4096 :
+    DATA_WIDTH <= 9 ? 2048 :
+    DATA_WIDTH <= 18 ? 1024:
+    DATA_WIDTH <= 36 ? 512: 0;
 
-  initial assert (SIZE != 0);
+  if (SIZE == 0 || ADDR_WIDTH == 0 || DATA_WIDTH == 0) $error();
 
   (* ram_style = "block" *) reg [DATA_WIDTH-1:0] mem[SIZE];
 

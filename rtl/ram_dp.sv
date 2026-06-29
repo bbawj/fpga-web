@@ -1,7 +1,15 @@
 module ram_dp #(
     parameter REGMODE = "NOREG",
     parameter int WR_WIDTH = 1,
-    parameter int RD_WIDTH = 1
+    parameter int RD_WIDTH = 1,
+    localparam int WIDER = WR_WIDTH > RD_WIDTH ? WR_WIDTH : RD_WIDTH,
+    localparam int NARROWER = WR_WIDTH < RD_WIDTH ? WR_WIDTH : RD_WIDTH,
+    parameter int ADDR_WIDTH = (NARROWER == 1) ? 14 :
+          (NARROWER == 2) ? 13 :
+          (NARROWER <= 4) ? 12 :
+          (NARROWER <= 9) ? 11 :
+          (NARROWER <= 18) ? 10 :
+          (NARROWER <= 36) ? 9 : 0
 ) (
     input clk_a,
     we_a,
@@ -16,14 +24,6 @@ module ram_dp #(
     (*keep*) output reg [RD_WIDTH-1:0] dob
 );
 
-  localparam int WIDER = WR_WIDTH > RD_WIDTH ? WR_WIDTH : RD_WIDTH;
-  localparam int NARROWER = WR_WIDTH < RD_WIDTH ? WR_WIDTH : RD_WIDTH;
-  parameter int ADDR_WIDTH = (NARROWER == 1) ? 14 :
-          (NARROWER == 2) ? 13 :
-          (NARROWER <= 4) ? 12 :
-          (NARROWER <= 9) ? 11 :
-          (NARROWER <= 18) ? 10 :
-          (NARROWER <= 36) ? 9 : 0;
 
   localparam logic SAME_WIDTH = RD_WIDTH == WR_WIDTH;
   localparam logic W_DIVS_R = WR_WIDTH > RD_WIDTH && WR_WIDTH % RD_WIDTH == 0;
