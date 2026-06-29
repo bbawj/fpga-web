@@ -37,10 +37,11 @@ async def uart_tx_single(dut):
     w = int(os.getenv("DATA_WIDTH"))
     nibbles = int(w / 4)
     hex_val = ''.join(random.choices('0123456789abcdef', k=nibbles))
-
+    cocotb.log.info(f"Payload is {hex_val}")
     tb = TB(dut)
-    uart_sink = UartSink(dut.uart_tx, baud=38400, bits=8)
+    uart_sink = UartSink(dut.uart_tx, baud=460800, bits=8)
 
+    tb.dut.valid.value = 0
     await tb.reset(tb.dut.rst)
     await RisingEdge(tb.dut.clk)
     # slice out the correct number of nibbles
@@ -82,6 +83,7 @@ def test_uart(data_width, use_block_ram):
     sources = [f"{source_folder}/uart.sv",
                f"{source_folder}/fifo.sv",
                f"{source_folder}/ram_wrap.sv",
+               f"{source_folder}/ram_dp.sv",
                "./test_uart.sv",
                ]
 
@@ -96,6 +98,7 @@ def test_uart(data_width, use_block_ram):
         includes=[f"{source_folder}/"],
         parameters={"DATA_WIDTH": data_width, "USE_BLOCK_RAM": use_block_ram},
         build_args=[
+            "-DSYNTHESIS=1",
             "-y/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/",
             "-y/home/bawj/lscc/diamond/3.14/cae_library/simulation/vhdl/ecp5u/src"],
         timescale=("1ns", "1ps"),

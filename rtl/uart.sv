@@ -4,6 +4,7 @@ module uart #(
     parameter DEPTH = 512,
     parameter FREQ = 125_000_000,
     parameter BAUD_RATE = 38400,
+    parameter REGMODE = "NOREG",
     parameter BUF_USE_BLOCKRAM = 0
 ) (
     input wire clk,
@@ -17,11 +18,12 @@ module uart #(
   assign rdy = !fifo_full;
 
   reg fifo_rd_en = 0;
-  wire fifo_empty, fifo_full;
-  reg [DATA_WIDTH - 1:0] fifo_dout, fifo_dout_q;
+  wire fifo_empty, fifo_full, fifo_dvalid;
+  reg [DATA_WIDTH - 1:0] fifo_dout;
   fifo #(
       .DATA_WIDTH(DATA_WIDTH),
       .DEPTH(DEPTH),
+      .REGMODE(REGMODE),
       .EBR(BUF_USE_BLOCKRAM)
   ) fifo_ (
       .clk  (clk),
@@ -32,6 +34,7 @@ module uart #(
       .rd_en(fifo_rd_en),
       .dout (fifo_dout),
       .empty(fifo_empty),
+      .valid(fifo_dvalid),
       .count()
   );
 
@@ -80,7 +83,7 @@ module uart #(
 
   always @(posedge clk) begin
     prev_byte_counter <= byte_counter;
-    if (byte_counter == 0) working <= fifo_dout_q;
+    if (fifo_dvalid) working <= fifo_dout;
     else if (prev_byte_counter != byte_counter) working <= working >> 8;
   end
 
@@ -92,10 +95,6 @@ module uart #(
     if (byte_counter == 0 && uart_state == START && prev_uart_state != START) begin
       fifo_rd_en <= 1;
     end
-  end
-
-  always @(posedge clk) begin
-    fifo_dout_q <= fifo_dout;
   end
 
   always @(posedge clk) begin

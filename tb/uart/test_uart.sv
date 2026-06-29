@@ -13,6 +13,8 @@ module test_uart #(
   PUR PUR_INST (.PUR(1'b1));
   uart #(
       .FREQ(125_000_000),
+      .BAUD_RATE(460800),
+      .REGMODE("OUTREG"),
       .BUF_USE_BLOCKRAM(USE_BLOCK_RAM),
       .DATA_WIDTH(DATA_WIDTH)
   ) uart (
