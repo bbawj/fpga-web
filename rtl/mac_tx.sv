@@ -1,18 +1,20 @@
+`default_nettype none
+
 module mac_tx #(
     parameter [47:0] MY_MAC_ADDR = 0,
     parameter [31:0] MY_IP_ADDR  = 0
 ) (
-    input clk,
-    input rst,
-    input tcp_echo_en,
-    input [15:0] tcp_echo_checksum,
+    input wire clk,
+    input wire rst,
+    input wire tcp_echo_en,
+    input wire [15:0] tcp_echo_checksum,
     input reg [47:0] i_mac_da,
 
-    input send_arp,
+    input wire send_arp,
     input reg [47:0] i_arp_encode_tha,
     input reg [31:0] i_arp_encode_tpa,
 
-    input send_tcp,
+    input wire send_tcp,
     input tcp::packet_t pkt_external,
     // RD_EN asserted to get data from SDRAM onto tcp_payload_data
     input reg tcp_payload_rd_valid,
@@ -24,14 +26,40 @@ module mac_tx #(
     output reg [7:0] mac_txd,
     output reg mac_txen
 );
+  typedef enum {
+    IDLE,
+    ARP,
+    PAYLOAD_LOADING,
+    IP_PKT_WAIT,
+    IP,
+    TCP,
+    PAYLOAD
+  } tx_state_t;
+  tx_state_t tx_state = IDLE;
 
   // FIFO has 1 cycle latency between pkt_rd_en and data being available for
   // sampling so we wait for falling edge here.
-  reg pkt_rd_en, pkt_rd_en_q1;
-  logic [18:0] pkt_payload_addr;
-  logic [15:0] pkt_payload_size;
+  reg pkt_rd_en = 0, pkt_rd_en_q1 = 0;
+  reg [18:0] pkt_payload_addr = 0;
+  reg [15:0] pkt_payload_size = 0;
+
+  reg ip_encode_en, ip_encode_done;
+  reg [31:0] ip_encode_sa = MY_IP_ADDR;
+  reg [31:0] ip_encode_da;
+  reg [15:0] ip_encode_len;
+  reg [ 7:0] ip_encode_dout;
+
+  reg tcp_encode_en, tcp_encode_done, tcp_encode_done_pre, tcp_encode_done_pre_3;
+  reg [15:0] tcp_encode_dest_port;
+  reg [31:0] tcp_encode_sequence_num;
+  reg [31:0] tcp_encode_ack_num;
+  reg [7:0] tcp_encode_flags;
+  reg [15:0] tcp_encode_window;
+  reg [15:0] tcp_encode_len;
+  reg [7:0] tcp_encode_dout;
 
   tcp::packet_t pkt;
+  reg tcp_outgoing_buffer_start = 0;
   wire pkt_rd_falling;
   assign pkt_rd_falling = ~pkt_rd_en && pkt_rd_en_q1;
   always @(posedge clk) begin
@@ -40,16 +68,18 @@ module mac_tx #(
     if (pkt_rd_falling) begin
       pkt_payload_addr <= pkt.payload_addr;
       pkt_payload_size <= pkt.payload_size;
-      ip_encode_len <= pkt.payload_size + 'd40;
       ip_encode_da <= pkt.peer_addr;
-      tcp_encode_len <= pkt.payload_size + 'd20;
       tcp_encode_dest_port <= pkt.peer_port;
       tcp_encode_sequence_num <= pkt.sequence_num;
       tcp_encode_ack_num <= pkt.ack_num;
       tcp_encode_flags <= pkt.flags;
       tcp_encode_window <= pkt.window;
-      // tcp_encode_initial_checksum <= pkt.checksum;
     end
+  end
+
+  always @(posedge clk) begin
+    ip_encode_len  <= pkt_payload_size + 'd40;
+    tcp_encode_len <= pkt_payload_size + 'd20;
   end
 
   reg tcp_empty, send_tcp_q;
@@ -62,27 +92,40 @@ module mac_tx #(
   ) outgoing_pkt_queue (
       .clk  (clk),
       .rst  (rst),
-      .wr_en(send_tcp_q),
+      .wr_en(send_tcp),
       .din  (pkt_external),
       .full (),
       .rd_en(pkt_rd_en),
       .dout (pkt),
+      .valid(),
       .empty(tcp_empty),
       .count()
   );
 
-  // Pull payload data into temp buffer to free up SDRAM activity
-  typedef enum {
-    BUFF_STATE_IDLE,
-    BUFF_STATE_START,
-    BUFF_STATE_MOVE_TO_LOCAL,
-    BUFF_STATE_DONE
-  } payload_buff_state_t;
-  payload_buff_state_t payload_buff_state = BUFF_STATE_IDLE;
-  reg tcp_outgoing_wr_en = 0;
-  reg [10:0] tcp_outgoing_wr_ptr = 0;
-  reg [31:0] tcp_outgoing_wr_data = 0;
-  (*keep*) reg [7:0] tcp_outgoing_rd_data;
+  reg [15:0] tcp_payload_checksum;
+  reg [7:0] tcp_outgoing_rd_data;
+  reg tcp_outgoing_wr_en;
+  reg [10:0] tcp_outgoing_wr_ptr;
+  reg [31:0] tcp_outgoing_wr_data;
+  reg tcp_outgoing_rdy;
+  mac_tx_buff mac_tx_buff_ (
+      .clk(clk),
+      .rst(rst),
+      .tcp_outgoing_buffer_start(tcp_outgoing_buffer_start),
+      .i_pkt_payload_size(pkt_payload_size),
+      .i_pkt_payload_addr(pkt_payload_addr),
+      .tcp_payload_rd_valid(tcp_payload_rd_valid),
+      .tcp_payload_rd_data(tcp_payload_rd_data),
+      .tcp_payload_rd_en(tcp_payload_rd_en),
+      .tcp_payload_rd_ad(tcp_payload_rd_ad),
+      .tcp_payload_rd_size(tcp_payload_rd_size),
+      .tcp_payload_checksum(tcp_payload_checksum),
+      .tcp_outgoing_rdy(tcp_outgoing_rdy),
+      .tcp_outgoing_wr_en(tcp_outgoing_wr_en),
+      .tcp_outgoing_wr_ptr(tcp_outgoing_wr_ptr),
+      .tcp_outgoing_wr_data(tcp_outgoing_wr_data)
+  );
+
   ebr #(
       .USE_BLOCKRAM(1),
       .REGMODE("OUTREG"),
@@ -100,87 +143,6 @@ module mac_tx #(
       .rd_valid(),
       .rd_data(tcp_outgoing_rd_data)
   );
-
-  reg [17:0] checksum_stage1 = '0;
-  reg checksum_stage_valid;
-  always @(posedge clk) begin
-    checksum_stage_valid <= tcp_outgoing_wr_en;
-    if (tcp_outgoing_wr_en) begin
-      // wr_data is in LE order not network transmit order
-      checksum_stage1 <= {2'b0, tcp_encode_initial_checksum} + { 2'b0, tcp_outgoing_wr_data[7:0], tcp_outgoing_wr_data[15:8] } + {2'b0, tcp_outgoing_wr_data[23:16], tcp_outgoing_wr_data[31:24] };
-    end else if (tcp_outgoing_buffer_start) checksum_stage1 <= '0;
-  end
-  always @(posedge clk) begin
-    if (checksum_stage_valid) begin
-      tcp_encode_initial_checksum <= tcp_echo_en ? tcp_echo_checksum : checksum_stage1[15:0] + {14'b0, checksum_stage1[17:16]};
-    end else if (tcp_outgoing_buffer_start) tcp_encode_initial_checksum <= '0;
-  end
-
-  reg tcp_outgoing_buffer_start;
-  reg [15:0] payload_counter = '0, sc_payload_counter;
-
-  reg pkt_rd_falling_q = 0, tcp_outgoing_rdy = 0;
-  always @(posedge clk) begin
-    if (rst) begin
-      pkt_rd_falling_q <= 0;
-    end else begin
-      pkt_rd_falling_q <= pkt_rd_falling;
-    end
-  end
-  always @(posedge clk) begin
-    tcp_outgoing_wr_data <= tcp_payload_rd_data;
-    // reading in 32 bit blocks
-    if (rst) begin
-      sc_payload_counter <= 0;
-    end else if (pkt_rd_falling_q)
-      sc_payload_counter <= (pkt_payload_size >> 2) + 16'(|pkt_payload_size[1:0]);
-  end
-  always @(posedge clk) begin
-    if (rst) begin
-      payload_counter <= '0;
-      tcp_payload_rd_en <= '0;
-      tcp_outgoing_wr_en <= '0;
-      tcp_outgoing_wr_ptr <= '0;
-      tcp_outgoing_rdy <= 0;
-      payload_buff_state <= BUFF_STATE_IDLE;
-    end else
-      case (payload_buff_state)
-        BUFF_STATE_IDLE: begin
-          tcp_payload_rd_en <= '0;
-          tcp_outgoing_wr_en <= '0;
-          tcp_outgoing_wr_ptr <= '0;
-          tcp_outgoing_rdy <= 0;
-          payload_counter <= 0;
-          tcp_payload_rd_ad <= pkt_payload_addr;
-          tcp_payload_rd_size <= pkt_payload_size;
-          // Assume pkt.payload_size > 0
-          if (tcp_outgoing_buffer_start && pkt_payload_size > 0) begin
-            tcp_payload_rd_en  <= 1'b1;
-            payload_buff_state <= BUFF_STATE_START;
-          end else if (tcp_outgoing_buffer_start && pkt_payload_size == 0) begin
-            payload_buff_state <= BUFF_STATE_MOVE_TO_LOCAL;
-          end
-        end
-        BUFF_STATE_START: begin
-          tcp_payload_rd_en  <= payload_counter != sc_payload_counter;
-          tcp_outgoing_wr_en <= tcp_payload_rd_valid;
-          if (tcp_payload_rd_valid) begin
-            tcp_payload_rd_ad <= tcp_payload_rd_ad + 1;
-            tcp_outgoing_wr_ptr <= tcp_outgoing_wr_ptr + 1;
-            payload_counter <= payload_counter + 1;
-          end
-          if (payload_counter == sc_payload_counter) payload_buff_state <= BUFF_STATE_MOVE_TO_LOCAL;
-        end
-        BUFF_STATE_MOVE_TO_LOCAL: begin
-          tcp_outgoing_wr_en <= 1'b0;
-          tcp_outgoing_rdy   <= 1;
-          payload_buff_state <= BUFF_STATE_IDLE;
-        end
-        default: begin
-          payload_buff_state <= BUFF_STATE_IDLE;
-        end
-      endcase
-  end
 
   reg mac_encode_en, mac_encode_ready;
   reg [7:0] mac_payload;
@@ -221,11 +183,6 @@ module mac_tx #(
       .dout(arp_encode_dout)
   );
 
-  reg ip_encode_en, ip_encode_done;
-  reg [31:0] ip_encode_sa = MY_IP_ADDR;
-  reg [31:0] ip_encode_da;
-  reg [15:0] ip_encode_len;
-  reg [ 7:0] ip_encode_dout;
   ip_encode ip_enc (
       .clk (clk),
       .rst (rst),
@@ -237,46 +194,28 @@ module mac_tx #(
       .dout(ip_encode_dout)
   );
 
-  reg tcp_encode_en, tcp_encode_done, tcp_encode_done_pre;
-  reg [15:0] tcp_encode_dest_port;
-  reg [31:0] tcp_encode_sequence_num;
-  reg [31:0] tcp_encode_ack_num;
-  reg [ 7:0] tcp_encode_flags;
-  reg [15:0] tcp_encode_window;
-  reg [15:0] tcp_encode_len;
-  reg [15:0] tcp_encode_initial_checksum;
-  reg [ 7:0] tcp_encode_dout;
   tcp_encode tcp_enc (
       .clk(clk),
       .rst(rst),
       .en(tcp_encode_en),
-      .ip_sa(ip_encode_sa),
-      .ip_da(ip_encode_da),
-      .tcp_len(tcp_encode_len),
+      .i_ip_sa(ip_encode_sa),
+      .i_ip_da(ip_encode_da),
+      .i_tcp_len(tcp_encode_len),
 
-      .dest_port(tcp_encode_dest_port),
-      .sequence_num(tcp_encode_sequence_num),
-      .ack_num(tcp_encode_ack_num),
-      .flags(tcp_encode_flags),
-      .window(tcp_encode_window),
-      .initial_checksum(tcp_encode_initial_checksum),
+      .i_dest_port(tcp_encode_dest_port),
+      .i_sequence_num(tcp_encode_sequence_num),
+      .i_ack_num(tcp_encode_ack_num),
+      .i_flags(tcp_encode_flags),
+      .i_window(tcp_encode_window),
+      .initial_checksum(tcp_echo_en ? tcp_echo_checksum : tcp_payload_checksum),
       // ebr has 1 cycle read latency so "pre_done_1" is required to meet
       // timing and ensure payload from ebr is ready
+      .pre_done_3(tcp_encode_done_pre_3),
       .pre_done_2(tcp_encode_done_pre),
       .pre_done_1(tcp_encode_done),
       .done(),
       .dout(tcp_encode_dout)
   );
-  typedef enum {
-    IDLE,
-    ARP,
-    PAYLOAD_LOADING,
-    IP_PKT_WAIT,
-    IP,
-    TCP,
-    PAYLOAD
-  } tx_state_t;
-  tx_state_t tx_state = IDLE;
   reg [15:0] payload_counter_2;
   always @(posedge clk) begin
     if (rst) begin

@@ -3,19 +3,25 @@ arp_encode
 arp_decode
 uart
 fifo
+async_fifo
 mdio
 sdram
 tcp_sm
+tcb_serializer
 tcb
+mac_tx_buff
 
 [options]
 arp_encode: mode prove
 arp_decode: mode prove
 uart: mode prove
 fifo: mode prove
+async_fifo: mode prove
 mdio: mode prove
 sdram: mode prove
 tcp_sm: mode prove
+tcb_serializer: mode prove
+mac_tx_buff: mode prove
 tcb: mode cover
 depth 10
 
@@ -23,6 +29,8 @@ multiclock on
 
 [engines]
 tcb: smtbmc
+fifo: smtbmc
+async_fifo: smtbmc
 abc pdr
 
 [script]
@@ -38,6 +46,10 @@ fifo: read -formal fifo.sv
 fifo: chparam -set DEPTH 8 fifo
 fifo: prep -top fifo
 fifo: chformal -assert -skip 1
+
+async_fifo: read -formal async_fifo_2deep.sv
+async_fifo: prep -top async_fifo_2deep
+async_fifo: chformal -assert -skip 1
 
 uart: read -sv fifo.sv
 uart: read -sv clk_divider.sv
@@ -66,11 +78,21 @@ tcb: read -sv to_ack_fifo.sv
 tcb: read -formal -sv tcb.sv
 tcb: prep -top tcb
 
+tcb_serializer: read -formal tcb_serializer.sv
+tcb_serializer: prep -top tcb_serializer
+
+mac_tx_buff: read -formal mac_tx_buff.sv
+mac_tx_buff: prep -top mac_tx_buff
+
 [files]
+../rtl/mac_tx_buff.sv
+../rtl/tcb_serializer.sv
+../rtl/ram_wrap.sv
 ../rtl/lfsr_rng.sv
 ../rtl/tcb.sv
 ../rtl/sdram_ctrl.sv
 ../rtl/fifo.sv
+../rtl/async_fifo_2deep.sv
 ../rtl/mdio.sv
 ../rtl/synchronizer.sv
 ../rtl/clk_gen.sv
