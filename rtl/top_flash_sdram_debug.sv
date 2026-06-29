@@ -19,9 +19,8 @@ module top_flash_sdram_debug (
     inout [31:0] sdram_dq,
     output wire [10:0] sdram_addr
 );
-  parameter NUM_BYTES = 80;
-  wire rst;
-  wire sysclk;
+  parameter reg [23:0] NUM_BYTES = 80;
+  wire sysclk, sysclk90;
   wire spiclk, spi_clken;
   reg pll_locked;
   clk_gen #(
@@ -29,13 +28,13 @@ module top_flash_sdram_debug (
       .TXC_DIV(5),
       .TXC_PHASE(5),
       .SPI_DIV(5),
-      .SPI_PHASE(5),
+      .SPI_PHASE(7),
       .FB_DIV(5)
   ) clk_gen (
       .clk_in(clk_25mhz),
 
       .sysclk(sysclk),
-      .spi_en(spi_clken),
+      .spi_en(1'b1),
       .spi(spiclk),
       .clk_locked(pll_locked)
   );
@@ -47,7 +46,7 @@ module top_flash_sdram_debug (
 
   reg spi_en, spi_data_valid;
   reg [7:0] spi_data;
-  localparam reg [23:0] OFFSET_IN_FLASH = 'h00000;
+  localparam reg [23:0] OFFSET_IN_FLASH = 'h40000;
   spi_master spi (
       .clk(sysclk),
       .spi_sclk(spiclk),
@@ -65,9 +64,10 @@ module top_flash_sdram_debug (
       .o_data(spi_data)
   );
 
-  reg i_en, lock_pulse;
+  reg lock_pulse;
   pulse_gen pulse (
       .clk(sysclk),
+      .rst('0),
       .sig(pll_locked && sdram_ready),
       .q  (lock_pulse)
   );

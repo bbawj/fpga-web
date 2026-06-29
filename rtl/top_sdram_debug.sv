@@ -13,7 +13,7 @@ module top_sdram_debug (
     output wire sdram_cas_n,
     output wire sdram_ras_n,
     output wire sdram_clk,
-    inout [31:0] sdram_dq,
+    inout wire [31:0] sdram_dq,
     output wire [10:0] sdram_addr
 );
   wire rst, sysclk, pll_locked;
