@@ -64,7 +64,7 @@ module mac #(
 
   reg mac_txen;
   reg [7:0] mac_txd;
-  rgmii_tx _rgmii_tx (
+  rgmii_tx rgmii_tx_ (
       .clk(clk),
       .clk90(clk90),
       .rst(rst),
@@ -81,12 +81,16 @@ module mac #(
   // Short circuit read to the incoming buffer.
   // If tcp_echo_en is asserted, there is no need to go to cache, just use 
   // incoming buffer payload.
+  logic tcp_tx_payload_rd_en, tcp_tx_payload_rd_valid;
   assign tcp_buff_rd_en = tcp_echo_en ? tcp_tx_payload_rd_en : http_req_payload;
-  assign tcp_tx_payload_rd_data = tcp_echo_en ? tcp_buff_rd_data : mem_ctrl_rd_data;
+  wire [31:0] tcp_tx_payload_rd_data;
+  assign tcp_tx_payload_rd_data  = tcp_echo_en ? tcp_buff_rd_data : mem_ctrl_rd_data;
   assign tcp_tx_payload_rd_valid = tcp_echo_en ? tcp_buff_rd_valid : mem_ctrl_rd_valid;
 
+  reg [7:0] tcp_decode_payload;
+  reg tcp_decode_payload_valid;
   ebr #(
-      .USE_BLOCKRAM(0),
+      .USE_BLOCKRAM(1),
       .REGMODE("OUTREG"),
       .ADDR_WIDTH(11),
       .WR_WIDTH(8),
@@ -106,34 +110,10 @@ module mac #(
   assign mem_ctrl_rd_req = tcp_tx_payload_rd_en && !tcp_echo_en;
 
   reg send_arp, send_tcp;
-  logic tcp_tx_payload_rd_en, tcp_tx_payload_rd_valid;
   tcp::packet_t tcp_tx_packet_pending;
 
-  mac_tx #(
-      .MY_MAC_ADDR(LOC_MAC_ADDR),
-      .MY_IP_ADDR (LOC_IP_ADDR)
-  ) tx (
-      .clk(clk),
-      .rst(rst),
-      .i_mac_da(mac_sa),
-      .tcp_echo_en(tcp_echo_en),
-      .tcp_echo_checksum(tcp_decode_payload_checksum_sync),
-
-      .send_arp(send_arp),
-      .i_arp_encode_tha(arp_encode_tha),
-      .i_arp_encode_tpa(arp_encode_tpa),
-
-      .send_tcp(send_tcp),
-      .pkt_external(tcp_tx_packet_pending),
-      .tcp_payload_rd_valid(tcp_tx_payload_rd_valid),
-      .tcp_payload_rd_data(tcp_tx_payload_rd_data),
-      .tcp_payload_rd_en(tcp_tx_payload_rd_en),
-      .tcp_payload_rd_ad(mem_ctrl_rd_ad),
-      .tcp_payload_rd_size(mem_ctrl_rd_size),
-
-      .mac_txd (mac_txd),
-      .mac_txen(mac_txen)
-  );
+  reg [3:0] payload_buff_state;
+  reg [2:0] misc_state;
   // RX path
   reg [7:0] rxd;
   wire rx_dv, rx_er;
@@ -209,8 +189,7 @@ module mac #(
   tcp::packet_t packet;
   assign packet.payload_addr = '0;
   assign packet.window = '0;
-  reg [7:0] tcp_decode_payload;
-  reg tcp_decode_payload_valid, tcp_decode_done, tcp_decode_err;
+  reg tcp_decode_done, tcp_decode_err;
   reg [15:0] tcp_decode_peer_port;
   reg [31:0] tcp_decode_sequence_num, tcp_decode_ack_num;
   reg [7:0] tcp_decode_flags;
@@ -294,29 +273,40 @@ module mac #(
   );
 
   reg tcp_arb_rdy, tcp_payload_valid, tcp_payload_err;
-  wire [31:0] tcp_tx_payload_rd_data;
   reg [18:0] to_send_payload_addr;
   reg [15:0] to_send_payload_size;
+  reg [31:0] to_send_peer_addr;
+  reg [15:0] to_send_peer_port;
   reg arb_upper_granted;
+  reg [7:0] arb_grant_state, arb_state, arb_serial_state;
+  reg [7:0] arb_upper_state;
+  reg outgoing_tcp = 0;
   tcp_arbiter arb (
       .clk(clk),
       .rst(rst),
-      .rxc(phy_rxc),
       .rdy(tcp_arb_rdy),
       // TODO: provide as parameter
       .tcp_echo_en(tcp_echo_en),
 
       .is_tx(outgoing_tcp),
       .upper_granted(arb_upper_granted),
-      .to_send_payload_addr(to_send_payload_addr),
-      .to_send_payload_size(to_send_payload_size),
+      .i_to_send_payload_addr(to_send_payload_addr),
+      .i_to_send_payload_size(to_send_payload_size),
+      .to_send_peer_addr(to_send_peer_addr),
+      .to_send_peer_port(to_send_peer_port),
 
       .is_rx(incoming_tcp_q),
       .rx_packet(packet),
       .tcp_payload_valid(tcp_payload_valid),
       .tcp_payload_err(tcp_payload_err),
+      .tcp_payload_peer_addr(),
+      .tcp_payload_peer_port(),
       .send_tcp(send_tcp),
-      .o_pkt_to_send(tcp_tx_packet_pending)
+      .o_pkt_to_send(tcp_tx_packet_pending),
+      .o_state(arb_state),
+      .o_serial_state(arb_serial_state),
+      .o_upper_state(arb_upper_state),
+      .o_grant_state(arb_grant_state)
       // .tcp_payload_addr(),
   );
 
@@ -340,21 +330,93 @@ module mac #(
 
 `ifdef DEBUG
   reg uart_valid = '0;
-  reg [7:0] uart_data = '0;
+  reg [31:0] uart_data = '0;
+  reg [31:0] counter = '0;
+  wire [7:0] u_http_state;
+  assign u_http_state = {payload_buff_state, misc_state, http_state};
+  reg [31:0] up, prev_up;
   always @(posedge clk) begin
-    uart_valid <= mac_txen;
-    uart_data  <= mac_txd;
+    up <= {arb_grant_state, arb_state, arb_serial_state, u_http_state};
+  end
+  reg onesec = 0;
+  reg [15:0] pkt_counter = 0, secs_counter;
+  reg [31:0] timer = 0;
+  reg mac_txen_q = 0;
+  always @(posedge clk) begin
+    mac_txen_q <= mac_txen;
+    timer <= timer + 1;
+    if (rst) pkt_counter <= 0;
+    // every 10s restart pktcount
+    else if (secs_counter == 10) begin
+      timer <= 0;
+      pkt_counter <= 0;
+    end else if (mac_txen && !mac_txen_q) pkt_counter <= pkt_counter + 1;
+  end
+  always @(posedge clk) begin
+    prev_up <= up;
+
+    if (counter == 125000000) begin
+      counter <= 0;
+      onesec <= 1;
+      secs_counter <= secs_counter == 10 ? 0 : secs_counter + 1;
+    end else begin
+      onesec  <= 0;
+      counter <= counter + 1;
+    end
+
+    if (mac_txen && !mac_txen_q) begin
+      uart_valid <= 1'b1;
+      uart_data  <= {16'hFFFF, pkt_counter};
+    end else begin
+      uart_valid <= onesec || up != prev_up;
+      uart_data  <= up;
+    end
+    // uart_valid <= tcp_buff_rd_valid;
+    // uart_data  <= tcp_buff_rd_data;
+    // uart_valid <= mac_txen;
+    // uart_data  <= mac_txd;
   end
   uart #(
       .BUF_USE_BLOCKRAM(1),
+      .REGMODE("OUTREG"),
+      .DATA_WIDTH(8),
+      .BAUD_RATE(921600),
       .DEPTH(1028)
   ) _uart (
+      .clk(clk),
+      .rst(rst),
+      .valid(mac_txen),
+      .rx(mac_txd),
+      .rdy(),
+      .tx(uart_tx)
+  );
+  uart #(
+      .BUF_USE_BLOCKRAM(1),
+      .REGMODE("OUTREG"),
+      .DATA_WIDTH(8),
+      .BAUD_RATE(921600),
+      .DEPTH(1028)
+  ) _uart_1 (
+      .clk(phy_rxc),
+      .rst(rst),
+      .valid(rx_dv),
+      .rx(rxd),
+      .rdy(),
+      .tx(uart_tx2)
+  );
+  uart #(
+      .BUF_USE_BLOCKRAM(1),
+      .REGMODE("OUTREG"),
+      .DATA_WIDTH(32),
+      .BAUD_RATE(921600),
+      .DEPTH(1028)
+  ) _uart_2 (
       .clk(clk),
       .rst(rst),
       .valid(uart_valid),
       .rx(uart_data),
       .rdy(),
-      .tx(uart_tx)
+      .tx(uart_tx3)
   );
 `endif
 
@@ -366,7 +428,7 @@ module mac #(
   );
   synchronizer sync (
       .clk(clk),
-      .sig(arp_done),
+      .sig(arp_done_strectched),
       .q  (arp_done_sync)
   );
   always @(posedge clk) begin : generate_send_pulse
@@ -384,38 +446,40 @@ module mac #(
   // Handles outgoing_tcp
   // Checks for HTTP decode OK, waits for SM approval, fire off outgoing_tcp.
   // SM responds a few cycles after HTTP decode validates.
-  reg outgoing_tcp = 0;
-  logic [1:0] http_state = 0;
-  always @(posedge clk) begin
-    case (http_state)
-      0: begin
-        outgoing_tcp <= 1'b0;
-        if (http_res_valid) begin
-          // an error in http decoding always sends the 404 page hard coded at
-          // endpoint 0.
-          to_send_payload_addr <= http_res_err ? 0 : http_payload_addr;
-          to_send_payload_size <= http_res_err ? 'h294 : http_payload_size;
-          outgoing_tcp <= 1;
-          http_state <= 1;
-        end
-      end
-      1: begin
-        if (arb_upper_granted) begin
-          http_state   <= 0;
-          outgoing_tcp <= 0;
-        end
-      end
-      default: begin
-        http_state   <= 0;
-        outgoing_tcp <= 0;
-      end
-    endcase
-  end
-
-
+  reg http_state = 0;
   reg http_res_valid, http_res_err, http_req_payload;
   reg [18:0] http_payload_addr;
   reg [15:0] http_payload_size;
+  always @(posedge clk) begin
+    if (rst) begin
+      outgoing_tcp <= 0;
+      http_state   <= 0;
+    end else
+      case (http_state)
+        0: begin
+          outgoing_tcp <= 1'b0;
+          if (http_res_valid) begin
+            // an error in http decoding always sends the 404 page hard coded at
+            // endpoint 0.
+            to_send_payload_addr <= http_res_err ? 0 : http_payload_addr;
+            to_send_payload_size <= http_res_err ? 'h294 : http_payload_size;
+            outgoing_tcp <= 1;
+            http_state <= 1;
+          end
+        end
+        1: begin
+          if (arb_upper_granted) begin
+            http_state   <= 0;
+            outgoing_tcp <= 0;
+          end
+        end
+        default: begin
+          http_state   <= 0;
+          outgoing_tcp <= 0;
+        end
+      endcase
+  end
+
   http_decode #(
       .HTTP_ADDR_FILE(HTTP_ADDR_FILE),
       .HTTP_SIZE_FILE(HTTP_SIZE_FILE)
@@ -434,6 +498,33 @@ module mac #(
       .res_payload_addr(http_payload_addr)
   );
 
+  mac_tx #(
+      .MY_MAC_ADDR(LOC_MAC_ADDR),
+      .MY_IP_ADDR (LOC_IP_ADDR)
+  ) tx (
+      .clk(clk),
+      .rst(rst),
+      .i_mac_da(mac_sa),
+      .tcp_echo_en(tcp_echo_en),
+      .tcp_echo_checksum(tcp_decode_payload_checksum_sync),
+
+      .send_arp(send_arp),
+      .i_arp_encode_tha(arp_encode_tha),
+      .i_arp_encode_tpa(arp_encode_tpa),
+
+      .send_tcp(send_tcp),
+      .pkt_external(tcp_tx_packet_pending),
+      .tcp_payload_rd_valid(tcp_tx_payload_rd_valid),
+      .tcp_payload_rd_data(tcp_tx_payload_rd_data),
+      .tcp_payload_rd_en(tcp_tx_payload_rd_en),
+      .tcp_payload_rd_ad(mem_ctrl_rd_ad),
+      .tcp_payload_rd_size(mem_ctrl_rd_size),
+
+      .o_misc(misc_state),
+      .o_payload_buff_state(payload_buff_state),
+      .mac_txd(mac_txd),
+      .mac_txen(mac_txen)
+  );
 `endif
 
 endmodule

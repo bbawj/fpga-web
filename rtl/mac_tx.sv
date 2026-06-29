@@ -23,6 +23,8 @@ module mac_tx #(
     output reg [18:0] tcp_payload_rd_ad,
     output reg [15:0] tcp_payload_rd_size,
 
+    output reg [3:0] o_payload_buff_state,
+    output reg [2:0] o_misc,
     output reg [7:0] mac_txd,
     output reg mac_txen
 );
@@ -123,7 +125,8 @@ module mac_tx #(
       .tcp_outgoing_rdy(tcp_outgoing_rdy),
       .tcp_outgoing_wr_en(tcp_outgoing_wr_en),
       .tcp_outgoing_wr_ptr(tcp_outgoing_wr_ptr),
-      .tcp_outgoing_wr_data(tcp_outgoing_wr_data)
+      .tcp_outgoing_wr_data(tcp_outgoing_wr_data),
+      .o_payload_buff_state(o_payload_buff_state)
   );
 
   ebr #(

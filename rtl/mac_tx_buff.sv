@@ -14,6 +14,7 @@ module mac_tx_buff (
     output reg [18:0] tcp_payload_rd_ad,
     output reg [15:0] tcp_payload_rd_size,
 
+    output reg [3:0] o_payload_buff_state,
     output reg tcp_outgoing_wr_en = 0,
     output reg [10:0] tcp_outgoing_wr_ptr = 0,
     output reg [31:0] tcp_outgoing_wr_data = 0,
@@ -39,6 +40,16 @@ module mac_tx_buff (
     BUFF_STATE_DONE
   } payload_buff_state_t;
   payload_buff_state_t payload_buff_state = BUFF_STATE_IDLE;
+  always @(posedge clk) begin
+    case (payload_buff_state)
+      BUFF_STATE_IDLE: o_payload_buff_state <= 'd0;
+      BUFF_STATE_START: o_payload_buff_state <= 'd1;
+      BUFF_STATE_MOVE_TO_LOCAL: o_payload_buff_state <= 'd2;
+      BUFF_STATE_DONE: o_payload_buff_state <= 'd3;
+      default: begin
+      end
+    endcase
+  end
   always @(posedge clk) begin
     if (rst) begin
       payload_counter <= '0;
