@@ -8,10 +8,13 @@ module top #(
     input wire clk_25mhz,
     input wire button,
     output wire led,
-    output wire uart_tx,
+    output wire gpio_0,
+    output wire gpio_1,
+    output wire gpio_2,
+    output wire gpio_3,
     // Shared PHY control
     // output wire mdc,
-    // output wire mdio,
+    output wire mdio,
     // PHY0 MII Interface
     output wire [3:0] phy0_txd,
     output wire phy0_txctl,
@@ -20,19 +23,20 @@ module top #(
     input wire phy0_rxctl,
     input wire phy0_rxc,
     // SPI flash
-    input flash_miso,
-    output flash_cs,
-    output flash_mosi,
+    input wire flash_miso,
+    output wire flash_cs,
+    output wire flash_mosi,
     // SDRAM interface
     output wire [1:0] sdram_ba,
     output wire sdram_we_n,
     output wire sdram_cas_n,
     output wire sdram_ras_n,
     output wire sdram_clk,
-    inout [31:0] sdram_dq,
+    inout wire [31:0] sdram_dq,
     output wire [10:0] sdram_addr
 );
-localparam NUM_BYTES = 30000;
+assign mdio = 1;
+localparam reg [23:0] NUM_BYTES = 30000;
 
 // RGMII requires specific setup and hold times.
 // This is achieved with a 90 degree phase offset tx_clk relative to the
@@ -46,12 +50,12 @@ wire spiclk, spi_clken;
 clk_gen #(.SYSCLK_DIV(24), .TXC_DIV(24), .TXC_PHASE(29), .MDC_DIV(240), .FB_DIV(1))
 `else
 // Phase range from 0 to 8, 0 phase is 4. Each division is 1/5 degrees
-clk_gen #(.SYSCLK_DIV(5), .TXC_DIV(5), .TXC_PHASE(5), .SPI_DIV(5), .SPI_PHASE(5), .FB_DIV(5))
+clk_gen #(.SYSCLK_DIV(5), .TXC_DIV(5), .TXC_PHASE(5), .SPI_DIV(5), .SPI_PHASE(7), .FB_DIV(5))
 `endif
-  _clk_gen (.clk_in(clk_25mhz), .spi_en(1'b1), .sysclk(sysclk),
-    .txc(sysclk90), .spi(spiclk), .clk_locked(pll_locked));
+  _clk_gen (.clk_in(clk_25mhz), .sysclk(sysclk),
+    .sysclk90(sysclk90), .spi_en(1'b1), .spiclk(spiclk), .clk_locked(pll_locked));
 
-USRMCLK u1(.USRMCLKI(spiclk), .USRMCLKTS(~pll_locked));
+USRMCLK u1(.USRMCLKI(spiclk), .USRMCLKTS(~pll_locked)) /* synthesis syn_noprune=1 */;
 
 wire rst;
 assign led = ~rst && (flash_done ? blinking : 1'b1);
@@ -72,13 +76,14 @@ always @(posedge sysclk) begin
 end
 areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
 
-  reg sdram_wr_req, sdram_ready;
+  logic sdram_wr_req, sdram_ready;
   wire sdram_wr_granted;
-  reg [18:0] sdram_wr_ad, sdram_rd_ad;
-  reg [31:0] sdram_wr_data;
-  wire [31:0] sdram_rd_data;
-  reg sdram_rd_req;
-  wire sdram_rd_valid, sdram_rd_granted;
+  logic [18:0] sdram_wr_ad, sdram_rd_ad;
+  logic [31:0] sdram_wr_data;
+  logic [31:0] sdram_rd_data;
+  logic [31:0] sdram_dq_in;
+  logic sdram_rd_req, sdram_dq_oe;
+  logic sdram_rd_valid, sdram_rd_granted;
   sdram_ctrl #(
       .FREQ(125_000_000)
   ) m (
@@ -106,6 +111,11 @@ areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
       .sdram_dq(sdram_dq),
       .sdram_addr(sdram_addr)
   );
+  // `ifdef LATTICE
+    // b__wrapper #(.DATA_WIDTH(32)) bb_(.T(~sdram_dq_oe), .I(sdram_wr_data), .O(sdram_dq_in), .B(sdram_dq));
+  // `else
+  //   assign sdram_dq = sdram_dq_oe ? sdram_wr_data : 32'hzzzzzzzz;
+  // `endif
 
   reg init_pulse;
   pulse_gen pulse (
@@ -114,6 +124,7 @@ areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
       .sig(~rst && sdram_ready),
       .q  (init_pulse)
   );
+  wire spi_en;
   delay #(
       .WIDTH(1),
       .DEPTH(10)
@@ -124,8 +135,8 @@ areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
       .data_out(spi_en)
   );
 
-  wire spi_en, spi_data_valid;
-  wire [7:0] spi_data;
+  logic spi_data_valid;
+  logic [7:0] spi_data;
   spi_master spi (
       .clk(sysclk),
       .spi_sclk(spiclk),
@@ -143,8 +154,11 @@ areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
       .o_data(spi_data)
   );
 
-  wire spi_ready, flash_done;
-  reg [31:0] spi_32;
+  logic flash_done;
+  logic sdram_rd_req_unused;
+  logic [18:0] sdram_rd_ad_unused;
+  logic spi_ready;
+  logic [31:0] spi_32;
   flash2sdram #(
       .NUM_BYTES(NUM_BYTES)
   ) f2s (
@@ -158,11 +172,25 @@ areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
       .sdram_wr_ad(sdram_wr_ad),
       .sdram_wr_data(sdram_wr_data),
       .sdram_rd_granted(1'b0),
-      .sdram_rd_req(),
-      .sdram_rd_ad(),
-      .spi_ready(),
-      .spi_32(),
+      .sdram_rd_req(sdram_rd_req_unused),
+      .sdram_rd_ad(sdram_rd_ad_unused),
+      .spi_ready(spi_ready),
+      .spi_32(spi_32),
       .done(flash_done)
+  );
+  uart #(
+      .FREQ(125_000_000),
+      .DATA_WIDTH(32),
+      .BUF_USE_BLOCKRAM(1),
+      .REGMODE("OUTREG"),
+      .BAUD_RATE(921600)
+  ) uart_spi (
+      .clk(sysclk),
+      .rst(rst),
+      .valid(spi_ready),
+      .rx(spi_32),
+      .rdy(),
+      .tx(gpio_3)
   );
 
 mac #(.HTTP_ADDR_FILE(HTTP_ADDR_FILE), .HTTP_SIZE_FILE(HTTP_SIZE_FILE)) mac_instance(
@@ -171,9 +199,10 @@ mac #(.HTTP_ADDR_FILE(HTTP_ADDR_FILE), .HTTP_SIZE_FILE(HTTP_SIZE_FILE)) mac_inst
   .clk(sysclk),
   .clk90(sysclk90),
   .rst(rst),
-  .led(),
-  .tcp_echo_en(TCP_ECHO_EN == 0 ? '0 : 1),
-  .uart_tx(uart_tx),
+  .tcp_echo_en(TCP_ECHO_EN == 0 ? 1'b0 : 1'b1),
+  .uart_tx(gpio_0),
+  .uart_tx2(gpio_1),
+  .uart_tx3(gpio_2),
 
   .mem_ctrl_rd_req(sdram_rd_req),
   .mem_ctrl_rd_ad(sdram_rd_ad),
