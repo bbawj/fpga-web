@@ -11,17 +11,17 @@
 module sdram_ctrl #(
     parameter int FREQ = 125_000_000
 ) (
-    input clk,
-    input rst,
+    input wire clk,
+    input wire rst,
 
-    input wr_req,
+    input wire wr_req,
     // 18:8 is the row address, 7:0 is column address
-    input [18:0] wr_ad,
-    input [31:0] wr_data,
+    input wire [18:0] wr_ad,
+    input wire [31:0] wr_data,
     output reg wr_granted,
 
-    input rd_req,
-    input [18:0] rd_ad,
+    input wire rd_req,
+    input wire [18:0] rd_ad,
     output reg rd_valid,
     output reg [31:0] rd_data,
     output reg rd_granted,
@@ -33,7 +33,7 @@ module sdram_ctrl #(
     output reg sdram_cas_n,
     output reg sdram_ras_n,
     output wire sdram_clk,
-    inout [31:0] sdram_dq,
+    inout wire [31:0] sdram_dq,
     output reg [10:0] sdram_addr
 );
 
@@ -46,12 +46,12 @@ module sdram_ctrl #(
 `endif
   // auto refresh can be performed once in 15.6us
 `ifdef FORMAL
-  localparam int REFRESH_CYCLE = 160 / CYCLE_TIME_NS;
+  localparam shortint REFRESH_CYCLE = 160 / CYCLE_TIME_NS;
 `else
-  localparam int REFRESH_CYCLE = (16000 + CYCLE_TIME_NS - 1) / CYCLE_TIME_NS;
+  localparam shortint REFRESH_CYCLE = (16000 + CYCLE_TIME_NS - 1) / CYCLE_TIME_NS;
 `endif
   // t_rfc (55ns)
-  localparam int ROW_CYCLE_TIME = (55 + CYCLE_TIME_NS - 1) / CYCLE_TIME_NS;
+  localparam int ROW_CYCLE_TIME = (60 + CYCLE_TIME_NS - 1) / CYCLE_TIME_NS;
   // tRP (min) ~ 20ns
   localparam int PRECHARGE_MIN = (20 + CYCLE_TIME_NS - 1) / CYCLE_TIME_NS;
   // tRAS (min) 42ns
@@ -59,7 +59,7 @@ module sdram_ctrl #(
   // 2 cyles min to complete write
   localparam int MRS_DELAY = 2;
   // Programmed during MRS
-  localparam int CAS_LATENCY = 3;
+  localparam int CAS_LATENCY = 4;
 
   assign sdram_clk = clk;
 
@@ -82,7 +82,7 @@ module sdram_ctrl #(
   } sram_state_t;
   sram_state_t state = BOOT, prev_state, next_state;
   reg [31:0] cycle_counter = '0;
-  reg [31:0] refresh_counter = '0;
+  reg [15:0] refresh_counter = '0;
   reg [7:0] idle_cycles = '0;
   reg [10:0] ra = '0;
   reg [7:0] ca = '0;
@@ -162,10 +162,17 @@ module sdram_ctrl #(
 
   always @(posedge clk) begin
     if (rst) begin
+      boot_done <= '0;
+    end else begin
+      if (state == AUTOREFRESH_DONE) boot_done <= 1;
+    end
+  end
+
+  always @(posedge clk) begin
+    if (rst) begin
       wr_granted <= '0;
       rd_granted <= '0;
       rd_valid <= '0;
-      boot_done <= '0;
       sdram_dq_oe <= '0;
     end else begin
       wr_granted  <= '0;
@@ -176,7 +183,6 @@ module sdram_ctrl #(
           sdram_ras_n <= 1;
           sdram_cas_n <= 1;
           sdram_we_n  <= 1;
-          boot_done   <= '0;
         end
         NOOP, AUTOREFRESH_WAIT: begin
           sdram_ras_n <= 1;
@@ -212,7 +218,6 @@ module sdram_ctrl #(
           sdram_ras_n <= 1'b0;
           sdram_cas_n <= 1'b0;
           sdram_we_n  <= 1'b1;
-          boot_done   <= 1'b1;
         end
         ACTIVATE: begin
           sdram_ras_n <= 1'b0;
