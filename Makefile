@@ -7,8 +7,10 @@ SOURCEDIR=rtl
 SOURCES = $(SOURCEDIR)/areset.sv \
 	$(SOURCEDIR)/async_fifo_2deep.sv \
 	$(SOURCEDIR)/tcp.sv \
+	$(SOURCEDIR)/utils.sv \
 	$(SOURCEDIR)/to_ack_fifo.sv \
 	$(SOURCEDIR)/tcb.sv \
+	$(SOURCEDIR)/tcb_serializer.sv \
 	$(SOURCEDIR)/ram_dp.sv \
 	$(SOURCEDIR)/delay.sv \
 	$(SOURCEDIR)/arp_decode.sv \
@@ -24,10 +26,12 @@ SOURCES = $(SOURCEDIR)/areset.sv \
 	$(SOURCEDIR)/ip_encode.sv \
 	$(SOURCEDIR)/mac.sv \
 	$(SOURCEDIR)/mac_tx.sv \
+	$(SOURCEDIR)/mac_tx_buff.sv \
 	$(SOURCEDIR)/mac_decode.sv \
 	$(SOURCEDIR)/mac_encode.sv \
 	$(SOURCEDIR)/mdio.sv \
 	$(SOURCEDIR)/sdram_ctrl.sv \
+	$(SOURCEDIR)/sdram_dummy.sv \
 	$(SOURCEDIR)/oddr.sv \
 	$(SOURCEDIR)/pulse_stretcher.sv \
 	$(SOURCEDIR)/pulse_gen.sv \
@@ -72,11 +76,11 @@ ebr:
 
 .PHONY: spi
 spi:
-	$(MAKE) TOP=top_spi_debug EXTRA_SOURCES="$(SOURCEDIR)/top_spi_debug.sv" synth route flash
+	$(MAKE) TOP=top_spi_debug EXTRA_SOURCES="$(SOURCEDIR)/top_spi_debug.sv" synth route program
 
 .PHONY: spi_sdram
 spi_sdram:
-	$(MAKE) TOP=top_flash_sdram_debug EXTRA_SOURCES="$(SOURCEDIR)/top_flash_sdram_debug.sv" synth route flash
+	$(MAKE) TOP=top_flash_sdram_debug EXTRA_SOURCES="$(SOURCEDIR)/top_flash_sdram_debug.sv" synth route program
 
 .PHONY: diag
 diag:
@@ -92,15 +96,21 @@ top: $(SOURCES)
 		'chparam -set TCP_ECHO_EN $(DEF_TCP_ECHO_EN) $(TOP); chparam -set HTTP_ADDR_FILE $(DEF_HTTP_ADDR_FILE) $(TOP); chparam -set HTTP_SIZE_FILE $(DEF_HTTP_SIZE_FILE) $(TOP); synth_ecp5 -top $(TOP) -json top.json$(SHOW_CMD)' $^
 
 route:
-	$(PNR) --25k --package CABGA256 --json top.json \
-			--lpf pinout.lpf --textcfg top.config --freq 125 --detailed-timing-report
+	$(PNR) --25k --package CABGA256 --speed 7 --json top.json \
+			--lpf pinout.lpf --textcfg top.config --freq 125 --detailed-timing-report --placer-heap-timingweight 40
 	$(PACK) --compress --svf top.svf top.config top.bit
 
-program: top.svf
-	$(LOADER) -f colorlight.cfg -c "svf -quiet -progress top.svf; exit"
+program: top.bit
+	openFPGALoader -c digilent_hs2 top.bit --verbose-level 2
+
+program_lat:
+	openFPGALoader -c digilent_hs2 ../fpga_web_lattice/impl1/fpga_web_lattice_impl1.bit --verbose-level 2
 
 flash: top.bit
 	openFPGALoader -c digilent_hs2 -f --unprotect-flash top.bit --verbose-level 2
+
+flash_lat: top.bit
+	openFPGALoader -c digilent_hs2 -f --unprotect-flash ../fpga_web_lattice/impl1/fpga_web_lattice_impl1.bit --verbose-level 2
 
 .PHONY: all
 all: synth route program
