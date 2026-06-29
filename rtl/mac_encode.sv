@@ -19,20 +19,6 @@ module mac_encode #(
     output reg [7:0] mac_txd
 );
 
-  typedef enum {
-    IDLE,
-    PREAMBLE,
-    SFD,
-    DEST,
-    SOURCE,
-    TYPE,
-    TYPE2,
-    PAYLOAD,
-    PAD,
-    FCS,
-    IPG
-  } mac_state_t;
-
   reg [31:0] crc_next;
   reg [31:0] crc_out;
   reg [ 7:0] crc_din;
@@ -97,13 +83,10 @@ module mac_encode #(
   logic [15:0] ethertype;
 
   // Counter for variable-length states only
-  localparam [10:0] COUNT_MIN_PAYLOAD = 'd46;
-  localparam [10:0] COUNT_MAX_PAYLOAD = 'd1500;
-  localparam [10:0] IPG_COUNT = 'd8;
-  logic [10:0] counter;
-
-  // CRC snapshot at FCS time
-  logic [31:0] crc_fcs;
+  localparam reg [10:0] COUNT_MIN_PAYLOAD = 'd46;
+  localparam reg [10:0] COUNT_MAX_PAYLOAD = 'd1500;
+  localparam reg [10:0] IPG_COUNT = 'd700;
+  logic [10:0] counter, pad_counter;
 
   // -------------------------------------------------------------------------
   // Input latch
@@ -136,25 +119,20 @@ module mac_encode #(
     end
   end
 
-  // Snapshot CRC going into FCS states so it doesn't shift under us
-  always_ff @(posedge clk) begin
-    if (state == S_TYPE_1 || (state == S_PAYLOAD && next_state == S_FCS_0)
-                           || (state == S_PAD    && next_state == S_FCS_0))
-      crc_fcs <= ~crc_out;
-  end
-
-  // -------------------------------------------------------------------------
-  // Counter (only meaningful in PAYLOAD / PAD / IPG)
-  // -------------------------------------------------------------------------
   always_ff @(posedge clk) begin
     if (rst) counter <= '0;
     else begin
       case (state)
         S_TYPE_1: counter <= '0;  // reset before payload
-        S_PAYLOAD, S_PAD, S_IPG: counter <= counter + 1;
+        S_PAYLOAD, S_PAD: counter <= counter + 1;
         default: counter <= '0;
       endcase
     end
+  end
+
+  always_ff @(posedge clk) begin
+    if (rst) pad_counter <= '0;
+    else pad_counter <= state == S_IPG ? (pad_counter + 'd1) : 0;
   end
 
   // -------------------------------------------------------------------------
@@ -202,7 +180,7 @@ module mac_encode #(
       S_FCS_2: next_state = S_FCS_3;
       S_FCS_3: next_state = S_IPG;
 
-      S_IPG: next_state = (counter == IPG_COUNT - 1) ? S_IDLE : S_IPG;
+      S_IPG: if (pad_counter == IPG_COUNT - 1) next_state = S_IDLE;
 
       default: next_state = S_IDLE;
     endcase
@@ -224,15 +202,18 @@ module mac_encode #(
 
   always_ff @(posedge clk) begin
     if (rst) begin
-      mac_txd  <= '0;
       mac_txen <= 1'b0;
       ready    <= 1'b1;
-      crc_din  <= '0;
     end else begin
-
       mac_txen <= (state != S_IDLE) && (state != S_IPG);
       ready    <= (state == S_IDLE);
-
+    end
+  end
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      mac_txd <= '0;
+      crc_din <= '0;
+    end else begin
       case (state)
         S_IDLE: mac_txd <= '0;
 
