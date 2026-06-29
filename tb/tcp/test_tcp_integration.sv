@@ -18,7 +18,6 @@ module test_tcp_integration (
       .clk(clk),
       .clk90(clk90),
       .rst(rst),
-      .led(),
       .tcp_echo_en(tcp_echo_en),
 
       .mem_ctrl_rd_req(),

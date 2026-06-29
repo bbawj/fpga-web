@@ -80,7 +80,10 @@ module tcp_sm (
         end
         tcp::SYN_RECV: begin
           reject_payload <= 1'b1;
-          if (i_flags_has_ack && seq_match && ack_match) begin
+          // repeated SYN should remain here
+          if (i_flags_is_syn) begin
+            next_state <= tcp::SYN_RECV;
+          end else if (i_flags_has_ack && seq_match && ack_match) begin
             next_state <= tcp::ESTABLISHED;
             seq_op <= 2'b10;
             clear_ack_en <= 1'b1;
@@ -163,6 +166,8 @@ module tcp_sm (
     // tcp_sm should always provide reject_payload or accept_payload so that
     // arbiter does not get stuck waiting
     if (f_past_valid && !$past(rst) && $past(valid)) assert (reject_payload || accept_payload);
+    // only 1 of them is asserted
+    if (f_past_valid) assert (!(reject_payload && accept_payload));
   end
 `endif
 endmodule

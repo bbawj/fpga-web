@@ -109,7 +109,7 @@ module http_decode #(
       WAIT_CAM2: begin
         next_state = IDLE;
       end
-      ABORT: if (!i_payload_valid) next_state = IDLE;
+      ABORT: if (!tcp_payload_valid) next_state = IDLE;
       default: next_state = IDLE;
     endcase
   end

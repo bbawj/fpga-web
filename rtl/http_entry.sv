@@ -14,7 +14,7 @@ module http_entry #(
   always @(posedge clk) begin
     content_addr <= cam_content_addr[18:0];
     content_size <= cam_content_meta[15:0];
-    content_checksum <= cam_content_meta[31:16];
+    content_checksum <= 0;
   end
   ram_sp #(
       .DATA_WIDTH(36),

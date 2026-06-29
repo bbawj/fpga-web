@@ -1,13 +1,14 @@
+from scapy.layers.http import HTTP
+from cocotbext.eth import GmiiFrame
+from cocotb.types import LogicArray
+from multiprocessing import Queue
+from cocotb.triggers import RisingEdge, ReadWrite, with_timeout
+from scapy.automaton import ATMT
 import socket
 import cocotb
 from cocotb.clock import Timer
 import asyncio
 from scapy.all import Raw, Ether, TCP, IP, TCP_client, Padding, RandString
-from scapy.automaton import ATMT
-from cocotb.triggers import RisingEdge, ReadWrite, with_timeout
-from multiprocessing import Queue
-from cocotb.types import LogicArray
-from cocotbext.eth import GmiiFrame
 
 
 class TcpPacketSV:
@@ -267,7 +268,7 @@ class TCP_client_sim(TCP_client):
             super().run(wait=False)
             super()._do_control(*args, **kargs)
             # used to raise outstanding exceptions
-            super().run(wait=True)
+            # super().run(wait=True)
         # block asyncio cancelled from propagating as cocotb absorbs the error and reports it as a failed test
         except asyncio.CancelledError:
             pass
@@ -360,7 +361,6 @@ class TCPSimSock:
             await RisingEdge(self.sig_clk)
             await ReadWrite()
         cocotb.log.info("packet to HDL")
-        # pkt.show2()
         sv_packet = TcpPacketSV.from_scapy(pkt, 2)
         self.sig_pkt.value = sv_packet.to_binaryvalue()
         self.sig_pkt_rx.value = 1
@@ -438,6 +438,7 @@ class TCPIntegrated(TCPSimSock):
         self.tb = tb
         self.last = None
         self.recv_count = 0
+        self.payload = bytearray()
         self.echo = echo
         self.dst_mac = dst_mac
         self.src_mac = src_mac
@@ -478,6 +479,8 @@ class TCPIntegrated(TCPSimSock):
                 if Padding in self.last:
                     del self.last[Padding]
                 assert not self.last[TCP].payload or self.last[TCP].payload == rx[TCP].payload, "Payload not echoed properly"
+            if Raw in rx:
+                self.payload.extend(HTTP(rx[Raw].load).load)
             self.from_hdl.put(rx, block=False)
 
 

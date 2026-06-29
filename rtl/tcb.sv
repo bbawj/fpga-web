@@ -3,24 +3,24 @@
 module tcb #(
     parameter logic [1:0] ID = 0
 ) (
-    input clk,
-    input rst,
-    input echo_en,
-    input [1:0] tcb_tx_sel,
-    input to_send_wr_en,
-    input [18:0] upper_to_send_payload_addr,
-    input [15:0] upper_to_send_payload_size,
-    input pkt_granted,
+    input wire clk,
+    input wire rst,
+    input wire echo_en,
+    input wire [1:0] tcb_tx_sel,
+    input wire to_send_wr_en,
+    input wire [18:0] upper_to_send_payload_addr,
+    input wire [15:0] upper_to_send_payload_size,
+    input wire pkt_granted,
     // Signals from TCP state machine handler. For now only the RX path enters
     // the TCP SM and cause updates to these signals. When tcb_rx_sel matches
     // the ID of this TCB, the state changes.
-    input [1:0] tcb_rx_sel,
+    input wire [1:0] tcb_rx_sel,
     input tcp::packet_t i_pkt,
-    input tcp::CONN_STATE i_state,
-    input send_ack,
-    input clear_ack_en,
-    input [1:0] ack_op,
-    input [1:0] seq_op,
+    input wire tcp::CONN_STATE i_state,
+    input wire send_ack,
+    input wire clear_ack_en,
+    input wire [1:0] ack_op,
+    input wire [1:0] seq_op,
     // This is the main way to inform arbiter that there is a transmission
     // required. Currently there are a few interactions:
     // 1. If SM asserts send_ack, this triggers pkt_pending after some time
@@ -31,9 +31,11 @@ module tcb #(
     output reg [31:0] o_expected_ack,
 
     output tcp::CONN_STATE o_state,
-    output tcp::packet_t   o_pkt
+    output reg [7:0] o_serial_state,
+    output tcp::packet_t o_pkt
 );
   tcp::tcb_t tcb_mem;
+  reg to_send_empty, to_send_rden;
 
   wire tx_update_en = tcb_tx_sel == ID;
   wire rx_update_en = tcb_rx_sel == ID;
@@ -92,23 +94,41 @@ module tcb #(
         serial_sequence_num, serial_ack_num, serial_payload_size, serial_payload_addr, serial_flags
       }),
       .full(),
-      .rd_en(pkt_to_send_valid),
+      .rd_en(tx_update_en && pkt_granted),
       .dout({
         o_pkt.sequence_num, o_pkt.ack_num, o_pkt.payload_size, o_pkt.payload_addr, o_pkt.flags
       }),
       .empty(serial_empty),
+      .valid(),
       .count()
   );
-  typedef enum {
-    SERIAL_IDLE,
-    SERIAL_UPPER_WAIT,
-    SERIAL_UPPER,
-    SERIAL_UPPER_UPDATE,
-    SERIAL_PSEUDO,
-    SERIAL_PSEUDO_WAIT,
-    SERIAL_RETRANSMIT
+  assign o_pkt.peer_addr = tcb_mem.peer_addr;
+  assign o_pkt.peer_port = tcb_mem.peer_port;
+  assign o_pkt.window = '0;
+
+  typedef enum reg [7:0] {
+    SERIAL_IDLE = 0,
+    SERIAL_UPPER_WAIT = 1,
+    SERIAL_UPPER = 2,
+    SERIAL_UPPER_UPDATE = 4,
+    SERIAL_PSEUDO = 8,
+    SERIAL_PSEUDO_WAIT = 16,
+    SERIAL_RETRANSMIT = 32
   } serial_state_t;
   serial_state_t serial_state = SERIAL_IDLE;
+  always @(posedge clk) begin
+    case (serial_state)
+      SERIAL_IDLE: o_serial_state <= 0;
+      SERIAL_UPPER_WAIT: o_serial_state <= 'd1;
+      SERIAL_UPPER: o_serial_state <= 'd2;
+      SERIAL_UPPER_UPDATE: o_serial_state <= 'd3;
+      SERIAL_PSEUDO: o_serial_state <= 'd4;
+      SERIAL_PSEUDO_WAIT: o_serial_state <= 'd5;
+      SERIAL_RETRANSMIT: o_serial_state <= 'd6;
+      default: begin
+      end
+    endcase
+  end
   reg actual_payload_serialized = 0;
   always @(posedge clk) begin
     if (rst || state_rst || tcb_mem.state == tcp::LISTEN) actual_payload_serialized <= 0;
@@ -120,6 +140,8 @@ module tcb #(
     else pseudo_pkt_granted <= 0;
   end
 
+  logic to_ack_wr_en, to_ack_empty, to_ack_retransmit_granted, to_ack_retransmit_pending;
+
   always @(posedge clk) begin
     if (rst || state_rst) begin
       serial_state <= SERIAL_IDLE;
@@ -128,26 +150,26 @@ module tcb #(
         SERIAL_IDLE: begin
           serial_wren <= 0;
           serial_sequence_num <= tcb_mem.sequence_num;
-          if (pseudo_pkt_pending) begin
-            serial_state <= SERIAL_PSEUDO;
-          end else if (!to_send_empty) begin
+          if (!to_send_empty) begin
             serial_state <= SERIAL_UPPER_WAIT;
-            to_send_rden <= 1;
-          end else if (tcb_mem.state == tcp::ESTABLISHED && to_ack_retransmit_pending) begin
+          end else if (pseudo_pkt_pending) begin
+            serial_state <= SERIAL_PSEUDO;
+          end else if (to_ack_retransmit_pending) begin
             serial_state <= SERIAL_RETRANSMIT;
             to_ack_retransmit_granted <= 1'b1;
           end
         end
         SERIAL_UPPER_WAIT: begin
           serial_state <= SERIAL_UPPER;
-          to_send_rden <= 0;
+          to_send_rden <= 1;
+          serial_payload_size <= to_send_payload_size;
+          serial_payload_addr <= to_send_payload_addr;
         end
         SERIAL_UPPER: begin
+          to_send_rden <= 0;
           serial_state <= SERIAL_UPPER_UPDATE;
           serial_wren <= 1;
           serial_ack_num <= tcb_mem.ack_num;
-          serial_payload_size <= to_send_payload_size_q;
-          serial_payload_addr <= to_send_payload_addr_q;
           case (tcb_mem.state)
             tcp::SYN_RECV: begin
               serial_flags <= tcp::SYN | tcp::ACK;
@@ -155,10 +177,7 @@ module tcb #(
             tcp::ESTABLISHED: begin
               serial_flags <= tcp::ACK | tcp::PSH;
             end
-            tcp::LASTACK: begin
-              serial_flags <= tcp::ACK | tcp::FIN;
-            end
-            tcp::FINWAIT: begin
+            tcp::LASTACK, tcp::FINWAIT: begin
               serial_flags <= tcp::ACK | tcp::FIN;
             end
             tcp::LISTEN: begin
@@ -171,7 +190,7 @@ module tcb #(
         end
         SERIAL_UPPER_UPDATE: begin
           serial_wren <= 0;
-          serial_sequence_num <= serial_sequence_num + 32'(to_send_payload_size_q);
+          serial_sequence_num <= serial_sequence_num + {16'b0, serial_payload_size};
           serial_state <= SERIAL_IDLE;
         end
         SERIAL_PSEUDO: begin
@@ -184,17 +203,11 @@ module tcb #(
             tcp::SYN_RECV: begin
               serial_flags <= tcp::SYN | tcp::ACK;
             end
-            tcp::ESTABLISHED: begin
+            tcp::ESTABLISHED, tcp::LISTEN: begin
               serial_flags <= tcp::ACK;
             end
-            tcp::LASTACK: begin
+            tcp::LASTACK, tcp::FINWAIT: begin
               serial_flags <= tcp::ACK | tcp::FIN;
-            end
-            tcp::FINWAIT: begin
-              serial_flags <= tcp::ACK | tcp::FIN;
-            end
-            tcp::LISTEN: begin
-              serial_flags <= tcp::ACK;
             end
             default: begin
               serial_flags <= 0;
@@ -223,9 +236,6 @@ module tcb #(
 
   always @(posedge clk) begin
     o_state <= tcb_mem.state;
-    o_pkt.peer_addr <= tcb_mem.peer_addr;
-    o_pkt.peer_port <= tcb_mem.peer_port;
-    o_pkt.window <= 0;
   end
 
   reg fin_pending = 0, fin_pending_q = 0;
@@ -282,7 +292,7 @@ module tcb #(
       tcb_mem.state <= tcp::LISTEN;
     end else if (rx_update_en) begin
       tcb_mem.state <= i_state;
-    end else if (tcb_mem.state == tcp::FINWAIT && fin_timeout) begin
+    end else if (fin_timeout) begin
       tcb_mem.state <= tcp::LISTEN;
     end else if (tcb_mem.state == tcp::ESTABLISHED && !echo_en) begin
       if (idle_timeout || (serial_empty && actual_payload_serialized && to_ack_empty))
@@ -344,9 +354,6 @@ module tcb #(
     end else begin
       pkt_to_send_valid   <= 1'b0;
       pkt_to_send_valid_q <= pkt_to_send_valid;
-      if (tx_update_en && pkt_granted) begin
-        pkt_to_send_valid <= 1'b1;
-      end
     end
   end
 
@@ -362,7 +369,6 @@ module tcb #(
     endcase
   end
 
-  reg to_send_empty, to_send_rden;
   logic [18:0] to_send_payload_addr, to_send_payload_addr_q;
   logic [15:0] to_send_payload_size, to_send_payload_size_q;
   always @(posedge clk) begin
@@ -382,10 +388,10 @@ module tcb #(
       .rd_en(to_send_rden),
       .dout ({to_send_payload_size, to_send_payload_addr}),
       .empty(to_send_empty),
+      .valid(),
       .count()
   );
 
-  logic to_ack_wr_en, to_ack_empty, to_ack_retransmit_granted, to_ack_retransmit_pending;
   logic [18:0] to_ack_payload_addr;
   logic [15:0] to_ack_payload_size;
   logic [31:0] to_ack_sequence_num;

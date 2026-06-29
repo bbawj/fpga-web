@@ -8,7 +8,7 @@ from cocotb.utils import get_sim_steps
 from cocotb_tools.runner import get_runner
 from cocotbext.eth import RgmiiPhy
 from scapy.all import Raw, RandString, Ether, TCP, IP
-from tcp.utils import TCPIntegrated, TCP_client_sim, PacketGen
+from tcp.utils import TCPIntegrated, TCP_client_sim, PacketGen, TCP_rst_client
 
 LOC_MAC_ADDR = "DEADBEEFCAFE"
 MAC_SRC = "b025aa3306fe"
@@ -74,6 +74,8 @@ async def http_integration_small_page(dut):
     gen.from_bench.put(Raw("GET /0\r\n"))
     await Timer(50, "us")
     assert tcp.recv_count == 5
+    with open("../pages/0.html", "rb") as f:
+        assert bytes(tcp.payload) == f.read().rjust(32, b'\x00')
 
 
 @cocotb.test()
@@ -93,6 +95,8 @@ async def http_integration_big_page(dut):
     assert tcp.recv_count == 1
     gen.from_bench.put(Raw("GET /1\r\n"))
     await Timer(300, "us")
+    with open("../pages/1.html", "rb") as f:
+        assert bytes(tcp.payload) == f.read().rjust(32, b'\x00')
     assert tcp.recv_count == 19
 
 
@@ -163,6 +167,32 @@ Accept-Encoding: gzip, deflate"""))
     assert tcp.recv_count == 10
 
 
+@cocotb.test()
+async def http_tcp_rst(dut):
+    tb = TB(dut)
+
+    await tb.reset()
+    tb.dut.tcp_echo_en.value = 0
+    client_ref = []
+    client_ip = "192.168.1.1"
+    client_port = 5000
+    gen = PacketGen(client_ip, client_port)
+    tcp = TCPIntegrated(tb, False, dst_mac, src_mac)
+    cocotb.start_soon(cocotb.task.bridge(TCP_rst_client)(
+        tcp, client_ref, False, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
+    await Timer(5000, "ns")
+    gen.from_bench.put(Raw("GET /0\r\n"))
+    await Timer(20000, "ns")
+    assert tcp.recv_count == 3
+    client_ref[0].stop(wait=False)
+    await Timer(5000, "ns")
+    cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
+        tcp, client_ref, False, server_ip, server_port, client_ip, client_port + 123, external_fd={"tcp": gen}))
+    await Timer(5000, "ns")
+    client_ref[1].stop(wait=False)
+    await Timer(5000, "ns")
+
+
 @cocotb.test(skip=True)
 async def http_integration_stop_during_payload(dut):
     pass
@@ -175,6 +205,7 @@ def test_http_integration():
     sources = [
         "../../config.vlt",
         "./test_http_integration.sv",
+        f"{source_folder}/utils.sv",
         f"{source_folder}/cache.sv",
         f"{source_folder}/http_decode.sv",
         f"{source_folder}/http_entry.sv",
@@ -222,8 +253,6 @@ def test_http_integration():
     runner.build(
         sources=sources,
         hdl_toplevel="test_http_integration",
-        always=True,
-        clean=True,
         waves=True,
         verbose=True,
         includes=[f"{source_folder}/"],
@@ -242,6 +271,4 @@ def test_http_integration():
 
     runner.test(waves=True,
                 verbose=True,
-                parameters={"HTTP_ADDR_FILE": f'"{addr_file_abs}"',
-                            "HTTP_SIZE_FILE": f'"{size_file_abs}"', },
                 hdl_toplevel="test_http_integration", test_module="test_http_integration")

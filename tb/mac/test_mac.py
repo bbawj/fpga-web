@@ -175,6 +175,7 @@ def test_simple_dff_runner(speed_100):
 
     source_folder = "../../rtl"
     sources = [
+        f"{source_folder}/utils.sv",
         f"../../config.vlt",
         f"{source_folder}/mac_encode.sv",
         f"{source_folder}/mac_decode.sv",

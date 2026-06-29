@@ -1,7 +1,7 @@
 module test_http_integration #(
-    parameter string HTTP_ADDR_FILE,
-    parameter string HTTP_SIZE_FILE,
-    parameter string HTTP_CONTENT_FILE
+    parameter HTTP_ADDR_FILE,
+    parameter HTTP_SIZE_FILE,
+    parameter HTTP_CONTENT_FILE
 ) (
     input wire clk,
     input wire clk90,
@@ -25,7 +25,6 @@ module test_http_integration #(
       .clk(clk),
       .clk90(clk90),
       .rst(rst),
-      .led(),
       .tcp_echo_en(tcp_echo_en),
 
       .mem_ctrl_rd_req(sdram_rd_req),
@@ -94,7 +93,8 @@ module test_http_integration #(
       .rd_ad(sdram_rd_ad),
       .rd_valid(sdram_rd_valid),
       .rd_data(sdram_rd_data),
-      .rd_granted(sdram_rd_granted)
+      .rd_granted(sdram_rd_granted),
+      .boot_done()
   );
 
 endmodule
