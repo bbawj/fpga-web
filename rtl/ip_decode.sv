@@ -1,5 +1,4 @@
 `default_nettype none
-`include "utils.svh"
 /*
 * Strips out the IPV4 header and reports done, otherwise err is raised if the
 * header is malformed.
@@ -7,8 +6,8 @@
 module ip_decode (
     input wire clk,
     input wire rst,
-    input valid,
-    input [7:0] din,
+    input wire valid,
+    input wire [7:0] din,
 
     output reg [31:0] sa,
     output reg [31:0] da,
@@ -24,6 +23,7 @@ module ip_decode (
 
   always @(posedge clk) begin
     case (counter)
+      0: err <= 0;
       // IP Version = 4
       16'd1: begin
         if (working[7:4] != 4'h4) err <= 1;
@@ -31,7 +31,7 @@ module ip_decode (
         ihl <= working[3:0];
       end
       // Total length
-      16'd4:  packet_size <= working[15:0];
+      16'd4: packet_size <= working[15:0];
       // Protocol: 6 = TCP
       // Protocol: 17 = UDP
       16'd10: if (working[7:0] != 8'd6) err <= 1;
@@ -40,7 +40,7 @@ module ip_decode (
       16'd16: sa <= working;
       16'd19: begin
         da  <= {working[23:0], din};
-        err <= err | ones_comp(working_checksum, {working[7:0], din}) != '1;
+        err <= err | utils::ones_comp(working_checksum, {working[7:0], din}) != '1;
       end
       default: begin
         // NO OP, wait for valid de-assert
@@ -52,12 +52,11 @@ module ip_decode (
     if (rst || !valid) begin
       working <= '0;
       counter <= '0;
-      err <= 0;
       done <= 0;
       working_checksum <= '0;
     end else if (valid) begin
       if (counter != '0 && !counter[0])
-        working_checksum <= ones_comp(working_checksum, working[15:0]);
+        working_checksum <= utils::ones_comp(working_checksum, working[15:0]);
 
       working <= {working[23:0], din};
       done <= counter >= 16'd4 * ihl - 16'd1 && counter < packet_size - 1;

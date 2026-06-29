@@ -4,25 +4,26 @@
 module tcp_encode #(
     parameter logic [15:0] MY_TCP_PORT = 16'd8080
 ) (
-    input en,
-    input clk,
-    input rst,
+    input wire en,
+    input wire clk,
+    input wire rst,
     // used for IP pseudo header in TCP checksum calc
-    input [31:0] ip_sa,
-    input [31:0] ip_da,
-    input [15:0] tcp_len,
+    input wire [31:0] i_ip_sa,
+    input wire [31:0] i_ip_da,
+    input wire [15:0] i_tcp_len,
 
-    input [15:0] dest_port,
-    input [31:0] sequence_num,
-    input [31:0] ack_num,
-    input [ 7:0] flags,
-    input [15:0] window,
-    input [15:0] initial_checksum,
+    input wire [15:0] i_dest_port,
+    input wire [31:0] i_sequence_num,
+    input wire [31:0] i_ack_num,
+    input wire [ 7:0] i_flags,
+    input wire [15:0] i_window,
+    input wire [15:0] initial_checksum,
 
     // asserted 1 cycle before "done"
     output reg pre_done_1,
     // asserted 2 cycle before "done"
     output reg pre_done_2,
+    output reg pre_done_3,
     output reg done,
     output reg [7:0] dout
 );
@@ -153,6 +154,7 @@ module tcp_encode #(
   always_ff @(posedge clk) begin
     pre_done_1 <= state == URG_1;
     pre_done_2 <= state == CHECKSUM_2;
+    pre_done_3 <= state == CHECKSUM_1;
   end
 
   always_ff @(posedge clk) begin
@@ -167,6 +169,22 @@ module tcp_encode #(
     end
   end
 
+  reg [31:0] ip_sa, ip_da, sequence_num, ack_num;
+  reg [15:0] tcp_len, dest_port, window;
+  reg [7:0] flags;
+  always @(posedge clk) begin
+    if (en) begin
+      ip_sa <= i_ip_sa;
+      ip_da <= i_ip_da;
+      tcp_len <= i_tcp_len;
+
+      dest_port <= i_dest_port;
+      sequence_num <= i_sequence_num;
+      ack_num <= i_ack_num;
+      flags <= i_flags;
+      window <= i_window;
+    end
+  end
   always @(posedge clk) begin
     case (state)
       SRC_1: checksum <= en ? (checksum + {3'b0, initial_checksum}) : {3'b0, MY_TCP_PORT + 16'd6};

@@ -45,10 +45,4 @@ end
 `define LOG_END begin end
 `endif
 
-function automatic logic [15:0] ones_comp(logic [15:0] checksum, logic [15:0] data);
-  logic [16:0] sum;
-  sum = data + checksum;
-  ones_comp = sum[15:0] + {15'b0, sum[16]};
-endfunction
-
 `endif

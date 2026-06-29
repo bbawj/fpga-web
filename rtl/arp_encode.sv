@@ -22,7 +22,6 @@ module arp_encode #(
   localparam ARP_HW_LEN = 8'h06;
   localparam ARP_PROT_LEN = 8'h04;
   localparam ARP_PROT_REPLY = 16'h0002;
-  reg [7:0] counter;
 
 `ifdef SPEED_100M
   localparam [7:0] COUNT_HW_TYPE = 8'd4;
@@ -77,9 +76,8 @@ module arp_encode #(
   } state_t;
 
   state_t       state = S_HW_TYPE_1;
-  state_t       next_state = S_HW_TYPE_1;
-  logic   [7:0] next_dout = 0;
-  logic         next_done = 0;
+  state_t       next_state;
+  logic   [7:0] next_dout;
 
   always_comb begin
     next_state = state;
@@ -216,9 +214,6 @@ module arp_encode #(
 `ifdef FORMAL
   initial assume (rst);
   always @(posedge clk) begin
-    assert (counter >= 0 && counter <= COUNT_TPA);
-    if (counter == 0) assert (done == 0);
-    if (done == 1) assert (counter != 0);
   end
 `endif
 
