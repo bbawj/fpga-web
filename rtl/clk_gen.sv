@@ -9,25 +9,35 @@ module clk_gen #(
     input  wire clk_in,     // input clock
     input wire spi_en,
     output wire sysclk,
-    output wire txc,
-    output wire spi,
+    output wire sysclk90,
+    output wire spiclk,
     output reg  clk_locked = 0  // clock locked?
-);
+)  /* synthesis NGD_DRC_MASK=1 */;
 
   wire locked;  // unsynced lock signal
-  reg  phase_step;
+  // reg  phase_step;
 
   // HDL attributes (values are from Project Trellis)
-  (* ICP_CURRENT="12" *)
-  (* LPF_RESISTOR="8" *)
-  (* MFG_ENABLE_FILTEROPAMP="1" *)
-  (* MFG_GMCREF_SEL="2" *)
+  // (* ICP_CURRENT="5" *)
+  // (* LPF_RESISTOR="16" *)
+  // (* MFG_ENABLE_FILTEROPAMP="1" *)
+  // (* MFG_GMCREF_SEL="2" *)
+  // (* FREQUENCY_PIN_CLKOS2="125.000000" *)
+  // (* FREQUENCY_PIN_CLKOS="125.000000" *)
+  // (* FREQUENCY_PIN_CLKOP="125.000000" *)
+  // (* FREQUENCY_PIN_CLKI="25.000000" *)
+  wire buf_CLKI;
+  IB Inst1_IB (
+      .I(clk_in),
+      .O(buf_CLKI)
+  );
 
+  wire sysclk_t, sysclk90_t, spiclk_t;
   EHXPLLL #(
       .PLLRST_ENA("DISABLED"),
       .INTFB_WAKE("DISABLED"),
       .STDBY_ENABLE("DISABLED"),
-      .DPHASE_SOURCE("ENABLED"),
+      .DPHASE_SOURCE("DISABLED"),
       .OUTDIVIDER_MUXA("DIVA"),
       .OUTDIVIDER_MUXB("DIVB"),
       .OUTDIVIDER_MUXC("DIVC"),
@@ -35,48 +45,70 @@ module clk_gen #(
       .CLKI_DIV(1),
       .CLKOP_ENABLE("ENABLED"),
       .CLKOS_ENABLE("ENABLED"),
-      .CLKOS2_ENABLE("DISABLED"),
+      .CLKOS2_ENABLE("ENABLED"),
+      .CLKOS3_ENABLE("DISABLED"),
       // When using 25mhz SYSCLK, pass through the sysclk for use as feedback
       // because phased clock (clkos) and clock lower than 10mhz (clkos2) is
       // not recommeded for feedback. Otherwise, if generating 125mhz sysclk
       // ignore this note.
-      .CLKOP_DIV(SYSCLK_DIV),
-      .CLKOP_CPHASE(0),
+      .CLKOP_DIV(5),
+      .CLKOP_CPHASE(4),
       .CLKOP_FPHASE(0),
       // 25 mhz clock with 90 degree offset used primarily for RGMII TX
-      .CLKOS_DIV(TXC_DIV),
       // each value represents 1/CLKOP_DIV turn of phase
       // 6 * 1/24 = 1/4 = 90 degree
-      .CLKOS_CPHASE(TXC_PHASE),
-      .CLKOS_FPHASE(0),
+      .CLKOS_DIV(5),
+      .CLKOS_CPHASE(4),
+      .CLKOS_FPHASE(3),
+      // .CLKOS_TRIM_DELAY(2),
+      // .CLKOS_TRIM_POL("FALLING"),
 
-      .CLKOS2_DIV(SPI_DIV),
-      .CLKOS2_CPHASE(SPI_PHASE),
+      .CLKOS2_DIV(5),
+      .CLKOS2_CPHASE(6),
       .CLKOS2_FPHASE(0),
 
-      .FEEDBK_PATH("CLKOP"),
-      .CLKFB_DIV  (FB_DIV)
-  ) pll_i (
-      .RST(1'b0),
-      .STDBY(1'b0),
-      .CLKI(clk_in),
-      .CLKOP(sysclk),
-      .CLKFB(sysclk),
-      .CLKOS(txc),
-      .CLKOS2(spi),
-      .CLKINTFB(),
+      .CLKOS3_DIV(1),
+      .CLKOS3_CPHASE(0),
+      .CLKOS3_FPHASE(0),
 
-      .PHASESEL0(1'b0),
-      .PHASESEL1(1'b0),
-      .PHASEDIR(1'b0),
-      .PHASESTEP(1'b0),
-      .PHASELOADREG(1'b0),
-      .PLLWAKESYNC(1'b0),
-      .ENCLKOP(1'b0),
-      .ENCLKOS(1'b0),
-      .ENCLKOS2(spi_en),
-      .LOCK(locked)
-  );
+      .FEEDBK_PATH("CLKOP"),
+      .CLKFB_DIV  (5)
+  )
+      pll_i (
+          .RST(1'b0),
+          .STDBY(1'b0),
+          .CLKI(buf_CLKI),
+          .CLKOP(sysclk_t),
+          .CLKFB(sysclk_t),
+          .CLKOS(sysclk90_t),
+          .CLKOS2(spiclk_t),
+          .CLKOS3(),
+          .CLKINTFB(),
+
+          .PHASESEL0(1'b0),
+          .PHASESEL1(1'b0),
+          .PHASEDIR(1'b0),
+          .PHASESTEP(1'b0),
+          .PHASELOADREG(1'b0),
+          .PLLWAKESYNC(1'b0),
+          .ENCLKOP(1'b0),
+          .ENCLKOS(1'b0),
+          .ENCLKOS2(1'b0),
+          .ENCLKOS3(1'b0),
+          .INTLOCK(),
+          .REFCLK(),
+          .LOCK(locked)
+      )
+  /* synthesis FREQUENCY_PIN_CLKOS2="125.000000" */
+  /* synthesis FREQUENCY_PIN_CLKOS="125.000000" */
+  /* synthesis FREQUENCY_PIN_CLKOP="125.000000" */
+  /* synthesis FREQUENCY_PIN_CLKI="25.000000" */
+  /* synthesis ICP_CURRENT="5" */
+/* synthesis LPF_RESISTOR="16" */
+;
+  assign sysclk   = sysclk_t;
+  assign sysclk90 = sysclk90_t;
+  assign spiclk   = spiclk_t;
 
   // Provide the minimum 4 VCO cycles setup and hold time for phase_step
   // reg [3:0] steps_done = '0;
@@ -101,4 +133,12 @@ module clk_gen #(
     clk_locked  <= locked_sync;
   end
 
+  // exemplar begin
+  // exemplar attribute pll_i FREQUENCY_PIN_CLKOS2 125.000000
+  // exemplar attribute pll_i FREQUENCY_PIN_CLKOS 125.000000
+  // exemplar attribute pll_i FREQUENCY_PIN_CLKOP 125.000000
+  // exemplar attribute pll_i FREQUENCY_PIN_CLKI 25.000000
+  // exemplar attribute pll_i ICP_CURRENT 5
+  // exemplar attribute pll_i LPF_RESISTOR 16
+  // exemplar end
 endmodule
