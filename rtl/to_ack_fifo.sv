@@ -41,6 +41,7 @@ module to_ack_fifo (
         to_ack_sequence_num, to_ack_ack_num, to_ack_payload_size, to_ack_payload_addr, to_ack_flags
       }),
       .empty(empty),
+      .valid(),
       .count()
   );
 
@@ -114,9 +115,9 @@ module to_ack_fifo (
   end
 
 `ifdef SYNTHESIS
-  assign retransmit_pending = retransmit_timer == 'd1250000000;
+  assign retransmit_pending = retransmit_timer == 'd500000000;
 `else
-  assign retransmit_pending = retransmit_timer == 'd2500;
+  assign retransmit_pending = retransmit_timer == 'd5000;
 `endif
   reg [31:0] retransmit_timer;
   always @(posedge clk) begin
