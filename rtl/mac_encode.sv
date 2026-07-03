@@ -85,7 +85,7 @@ module mac_encode #(
   // Counter for variable-length states only
   localparam reg [10:0] COUNT_MIN_PAYLOAD = 'd46;
   localparam reg [10:0] COUNT_MAX_PAYLOAD = 'd1500;
-  localparam reg [10:0] IPG_COUNT = 'd700;
+  localparam reg [10:0] IPG_COUNT = 'd12;
   logic [10:0] counter, pad_counter;
 
   // -------------------------------------------------------------------------

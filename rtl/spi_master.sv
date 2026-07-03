@@ -30,6 +30,17 @@ module spi_master (
   reg reload_en, next_reload_en;
   reg next_cs, next_clken;
   reg counter_reset, next_counter_reset;
+
+  typedef enum {
+    IDLE,
+    INST,
+    ADDR1,
+    ADDR2,
+    ADDR3,
+    WAIT_SYNC,
+    DATA
+  } state_t;
+  state_t state, next_state;
   always @(posedge clk) begin
     if (rst) begin
       reload_en <= 1'b1;
@@ -94,16 +105,6 @@ module spi_master (
     end
   end
 
-  typedef enum {
-    IDLE,
-    INST,
-    ADDR1,
-    ADDR2,
-    ADDR3,
-    WAIT_SYNC,
-    DATA
-  } state_t;
-  state_t state, next_state;
   always_comb begin
     next_reload_en = 0;
     next_state = state;

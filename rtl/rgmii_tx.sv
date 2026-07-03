@@ -1,3 +1,4 @@
+`default_nettype none
 `include "utils.svh"
 
 module rgmii_tx (
@@ -24,7 +25,7 @@ module rgmii_tx (
       .q  (phy_txctl)
   );
 
-  always @* begin
+  always_comb begin
 `ifdef SPEED_100M
     txd_1 = mac_phy_txd[3:0];
     txd_2 = mac_phy_txd[3:0];

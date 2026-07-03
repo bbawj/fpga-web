@@ -59,9 +59,7 @@ module clk_gen #(
       // 6 * 1/24 = 1/4 = 90 degree
       .CLKOS_DIV(5),
       .CLKOS_CPHASE(4),
-      .CLKOS_FPHASE(3),
-      // .CLKOS_TRIM_DELAY(2),
-      // .CLKOS_TRIM_POL("FALLING"),
+      .CLKOS_FPHASE(0),
 
       .CLKOS2_DIV(5),
       .CLKOS2_CPHASE(6),
