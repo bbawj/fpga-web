@@ -344,7 +344,7 @@ module tcb #(
         default: begin
         end
       endcase
-    end else if (serial_wren) begin
+    end else if (serial_wren && (serial_state == SERIAL_UPPER || serial_state == SERIAL_UPPER_UPDATE)) begin
       tcb_mem.sequence_num <= tcb_mem.sequence_num + {16'b0, serial_payload_size};
     end
   end
