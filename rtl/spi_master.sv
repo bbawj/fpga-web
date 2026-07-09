@@ -41,7 +41,7 @@ module spi_master (
     DATA
   } state_t;
   state_t state, next_state;
-  always @(posedge clk) begin
+  always @(posedge spi_sclk) begin
     if (rst) begin
       reload_en <= 1'b1;
       state <= IDLE;
@@ -83,7 +83,7 @@ module spi_master (
   synchronizer #(
       .SYNC_WIDTH(SYNC_STAGES)
   ) sync1 (
-      .clk(clk),
+      .clk(spi_sclk),
       .sig(sclk_miso),
       .q  (miso_sync)
   );
@@ -92,11 +92,11 @@ module spi_master (
       // than clk
       .SYNC_WIDTH(SYNC_STAGES + 1)
   ) sync2 (
-      .clk(clk),
+      .clk(spi_sclk),
       .sig(next_byte_valid),
       .q  (byte_valid)
   );
-  always @(posedge clk) begin
+  always @(posedge spi_sclk) begin
     working <= {working[6:0], miso_sync};
     o_data_valid <= 1'b0;
     if (byte_valid) begin

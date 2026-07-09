@@ -1,4 +1,4 @@
-`default_nettype	none
+`default_nettype none
 module top #(
   parameter TCP_ECHO_EN = 0,
   parameter reg [23:0] OFFSET_IN_FLASH = 'h40000,
@@ -36,7 +36,7 @@ module top #(
     output wire [10:0] sdram_addr
 );
 assign mdio = 1;
-localparam reg [23:0] NUM_BYTES = 30000;
+localparam reg [23:0] NUM_BYTES = 90000;
 
 // RGMII requires specific setup and hold times.
 // This is achieved with a 90 degree phase offset tx_clk relative to the
@@ -44,7 +44,7 @@ localparam reg [23:0] NUM_BYTES = 30000;
 reg pll_locked;
 wire sysclk;
 wire sysclk90;
-wire spiclk, spi_clken;
+wire spiclk, spiclk90, spi_clken;
 `ifdef SPEED_100M
 // Phase range from 0 to 46, 0 phase is 23. Each division is 1/24 degrees
 clk_gen #(.SYSCLK_DIV(24), .TXC_DIV(24), .TXC_PHASE(29), .MDC_DIV(240), .FB_DIV(1))
@@ -53,9 +53,9 @@ clk_gen #(.SYSCLK_DIV(24), .TXC_DIV(24), .TXC_PHASE(29), .MDC_DIV(240), .FB_DIV(
 clk_gen #(.SYSCLK_DIV(5), .TXC_DIV(5), .TXC_PHASE(5), .SPI_DIV(5), .SPI_PHASE(7), .FB_DIV(5))
 `endif
   _clk_gen (.clk_in(clk_25mhz), .sysclk(sysclk),
-    .sysclk90(sysclk90), .spi_en(1'b1), .spiclk(spiclk), .clk_locked(pll_locked));
+    .sysclk90(sysclk90), .spi_en(1'b1), .spiclk(spiclk), .spiclk90(spiclk90), .clk_locked(pll_locked));
 
-USRMCLK u1(.USRMCLKI(spiclk), .USRMCLKTS(~pll_locked)) /* synthesis syn_noprune=1 */;
+USRMCLK u1(.USRMCLKI(spiclk90), .USRMCLKTS(~pll_locked)) /* synthesis syn_noprune=1 */;
 
 wire rst;
 assign led = ~rst && (flash_done ? blinking : 1'b1);
@@ -124,7 +124,7 @@ areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
       .sig(~rst && sdram_ready),
       .q  (init_pulse)
   );
-  wire spi_en;
+  wire spi_en, spi_en_stretched;
   delay #(
       .WIDTH(1),
       .DEPTH(10)
@@ -133,6 +133,11 @@ areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
       .rst(rst),
       .data_in(init_pulse),
       .data_out(spi_en)
+  );
+  pulse_stretcher #(.FACTOR(10)) stretcher (
+      .clk(sysclk),
+      .d  (spi_en),
+      .q  (spi_en_stretched)
   );
 
   logic spi_data_valid;
@@ -145,7 +150,7 @@ areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
       .spi_mosi(flash_mosi),
       .spi_clken(spi_clken),
       .rst(rst),
-      .i_en(spi_en),
+      .i_en(spi_en_stretched),
       .i_size(NUM_BYTES),
       .i_inst(8'h03),
       .i_offset(OFFSET_IN_FLASH),
@@ -163,6 +168,7 @@ areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
       .NUM_BYTES(NUM_BYTES)
   ) f2s (
       .clk(sysclk),
+      .spiclk(spiclk),
       .rst(rst),
       .readback(1'b0),
       .spi_data_valid(spi_data_valid),

@@ -11,6 +11,7 @@ module clk_gen #(
     output wire sysclk,
     output wire sysclk90,
     output wire spiclk,
+    output wire spiclk90,
     output reg  clk_locked = 0  // clock locked?
 )  /* synthesis NGD_DRC_MASK=1 */;
 
@@ -32,7 +33,7 @@ module clk_gen #(
       .O(buf_CLKI)
   );
 
-  wire sysclk_t, sysclk90_t, spiclk_t;
+  wire sysclk_t, sysclk90_t, spiclk_t, spiclk90_t;
   EHXPLLL #(
       .PLLRST_ENA("DISABLED"),
       .INTFB_WAKE("DISABLED"),
@@ -46,7 +47,7 @@ module clk_gen #(
       .CLKOP_ENABLE("ENABLED"),
       .CLKOS_ENABLE("ENABLED"),
       .CLKOS2_ENABLE("ENABLED"),
-      .CLKOS3_ENABLE("DISABLED"),
+      .CLKOS3_ENABLE("ENABLED"),
       // When using 25mhz SYSCLK, pass through the sysclk for use as feedback
       // because phased clock (clkos) and clock lower than 10mhz (clkos2) is
       // not recommeded for feedback. Otherwise, if generating 125mhz sysclk
@@ -58,15 +59,15 @@ module clk_gen #(
       // each value represents 1/CLKOP_DIV turn of phase
       // 6 * 1/24 = 1/4 = 90 degree
       .CLKOS_DIV(5),
-      .CLKOS_CPHASE(4),
-      .CLKOS_FPHASE(0),
+      .CLKOS_CPHASE(6),
+      .CLKOS_FPHASE(2),
 
-      .CLKOS2_DIV(5),
-      .CLKOS2_CPHASE(6),
+      .CLKOS2_DIV(12),
+      .CLKOS2_CPHASE(11),
       .CLKOS2_FPHASE(0),
 
-      .CLKOS3_DIV(1),
-      .CLKOS3_CPHASE(0),
+      .CLKOS3_DIV(12),
+      .CLKOS3_CPHASE(15),
       .CLKOS3_FPHASE(0),
 
       .FEEDBK_PATH("CLKOP"),
@@ -80,7 +81,7 @@ module clk_gen #(
           .CLKFB(sysclk_t),
           .CLKOS(sysclk90_t),
           .CLKOS2(spiclk_t),
-          .CLKOS3(),
+          .CLKOS3(spiclk90_t),
           .CLKINTFB(),
 
           .PHASESEL0(1'b0),
@@ -107,6 +108,7 @@ module clk_gen #(
   assign sysclk   = sysclk_t;
   assign sysclk90 = sysclk90_t;
   assign spiclk   = spiclk_t;
+  assign spiclk90 = spiclk90_t;
 
   // Provide the minimum 4 VCO cycles setup and hold time for phase_step
   // reg [3:0] steps_done = '0;

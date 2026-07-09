@@ -6,6 +6,7 @@ module flash2sdram #(
     parameter NUM_BYTES = 64
 ) (
     input wire clk,
+    input wire spiclk,
     input wire rst,
     input wire readback,
     input wire spi_data_valid,
@@ -30,12 +31,27 @@ module flash2sdram #(
   reg [1:0] spi_counter = 0;
   reg [1:0] state = 0;
   // reg spi_ready = 0;
+  always @(posedge spiclk) begin
+    if (rst) begin
+      spi_ready   <= 0;
+      spi_counter <= 0;
+    end else begin
+      spi_counter <= spi_counter + (spi_data_valid ? 1 : 0);
+      spi_ready <= spi_counter == 'd3 && spi_data_valid;
+      spi_32 <= spi_data_valid ? {spi_data, spi_32[31:8]} : spi_32;
+    end
+  end
+
+  reg clk_spi_ready_q, clk_spi_ready;
+  always @(posedge clk) begin
+    clk_spi_ready   <= spi_ready;
+    clk_spi_ready_q <= clk_spi_ready;
+  end
+
   always @(posedge clk) begin
     if (rst) begin
       state <= 0;
       done <= 0;
-      spi_counter <= 0;
-      spi_ready <= 0;
       write_counter <= 0;
       read_counter <= 0;
       sdram_wr_ad <= 0;
@@ -43,16 +59,13 @@ module flash2sdram #(
       sdram_rd_req <= 0;
       sdram_rd_ad <= 0;
     end else begin
-      spi_counter <= spi_counter + (spi_data_valid ? 1 : 0);
-      spi_ready <= spi_counter == 'd3 && spi_data_valid;
-      spi_32 <= spi_data_valid ? {spi_data, spi_32[31:8]} : spi_32;
       write_counter <= write_counter + (sdram_wr_granted ? 1 : 0);
-      read_counter <= read_counter + (sdram_rd_granted ? 1 : 0);
+      read_counter  <= read_counter + (sdram_rd_granted ? 1 : 0);
       case (state)
         0: begin
           sdram_rd_req <= '0;
           sdram_wr_req <= '0;
-          if (spi_ready) begin
+          if (clk_spi_ready && !clk_spi_ready_q) begin
             sdram_wr_req <= 1'b1;
             sdram_wr_data <= spi_32;
             state <= 1;
