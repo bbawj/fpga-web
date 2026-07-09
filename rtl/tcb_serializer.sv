@@ -12,7 +12,7 @@ module tcb_serializer (
 
     output reg [1:0] tcb_tx_sel,
     output reg to_send_wr_en,
-    output reg send_tcp,
+    output reg o_send_tcp,
     output reg [18:0] mux_to_send_payload_addr,
     output reg [15:0] mux_to_send_payload_size,
 
@@ -32,6 +32,7 @@ module tcb_serializer (
     GRANT_ECHO
   } grant_state_t;
   grant_state_t grant_state;
+`ifdef DEBUG
   always @(posedge clk) begin
     case (grant_state)
       GRANT_IDLE: o_grant_state <= 0;
@@ -46,6 +47,7 @@ module tcb_serializer (
       end
     endcase
   end
+`endif
   reg [18:0] remaining_payload_addr;
   reg [15:0] remaining_payload_size;
   reg [18:0] to_send_payload_addr;
@@ -73,9 +75,13 @@ module tcb_serializer (
     else pkt_granted <= grant_state == GRANT_PENDING;
   end
 
+  reg send_tcp, send_tcp_q;
   always @(posedge clk) begin
     if (rst) send_tcp <= 0;
     else send_tcp <= grant_state == SEND_PKT;
+
+    send_tcp_q <= send_tcp;
+    o_send_tcp <= send_tcp_q;
   end
 
   always @(posedge clk) begin

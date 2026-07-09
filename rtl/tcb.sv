@@ -78,14 +78,14 @@ module tcb #(
   always @(posedge clk) begin
     pkt_pending <= !serial_empty;
   end
-  logic [31:0] serial_sequence_num;
-  logic [31:0] serial_ack_num;
-  logic [18:0] serial_payload_addr;
-  logic [15:0] serial_payload_size;
-  logic [ 7:0] serial_flags;
+  logic [31:0] serial_sequence_num, serial_sequence_num_q;
+  logic [31:0] serial_ack_num, serial_ack_num_q;
+  logic [18:0] serial_payload_addr, serial_payload_addr_q;
+  logic [15:0] serial_payload_size, serial_payload_size_q;
+  logic [7:0] serial_flags, serial_flags_q;
   fifo #(
       .DATA_WIDTH(107),
-      .DEPTH(32)
+      .DEPTH(64)
   ) serialized (
       .clk(clk),
       .rst(state_rst || rst),
@@ -96,15 +96,28 @@ module tcb #(
       .full(),
       .rd_en(tx_update_en && pkt_granted),
       .dout({
-        o_pkt.sequence_num, o_pkt.ack_num, o_pkt.payload_size, o_pkt.payload_addr, o_pkt.flags
+        serial_sequence_num_q,
+        serial_ack_num_q,
+        serial_payload_size_q,
+        serial_payload_addr_q,
+        serial_flags_q
       }),
       .empty(serial_empty),
       .valid(),
       .count()
   );
-  assign o_pkt.peer_addr = tcb_mem.peer_addr;
-  assign o_pkt.peer_port = tcb_mem.peer_port;
-  assign o_pkt.window = '0;
+  always_ff @(posedge clk) begin
+    o_pkt.peer_addr <= tcb_mem.peer_addr;
+    o_pkt.peer_port <= tcb_mem.peer_port;
+    o_pkt.window <= '0;
+    if (pkt_to_send_valid) begin
+      o_pkt.sequence_num <= serial_sequence_num_q;
+      o_pkt.ack_num <= serial_ack_num_q;
+      o_pkt.payload_size <= serial_payload_size_q;
+      o_pkt.payload_addr <= serial_payload_addr_q;
+      o_pkt.flags <= serial_flags_q;
+    end
+  end
 
   typedef enum reg [7:0] {
     SERIAL_IDLE = 0,
@@ -354,6 +367,9 @@ module tcb #(
     end else begin
       pkt_to_send_valid   <= 1'b0;
       pkt_to_send_valid_q <= pkt_to_send_valid;
+      if (tx_update_en && pkt_granted) begin
+        pkt_to_send_valid <= 1'b1;
+      end
     end
   end
 
@@ -378,7 +394,7 @@ module tcb #(
   fifo #(
       .LOOKAHEAD(1),
       .DATA_WIDTH(35),
-      .DEPTH(32)
+      .DEPTH(64)
   ) to_send (
       .clk  (clk),
       .rst  (rst || state_rst),

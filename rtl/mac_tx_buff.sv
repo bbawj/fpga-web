@@ -95,18 +95,25 @@ module mac_tx_buff (
       endcase
   end
 
-  reg [17:0] checksum_stage1 = '0;
+  reg [15:0] checksum_stage1 = '0;
   reg checksum_stage_valid;
   always @(posedge clk) begin
     checksum_stage_valid <= tcp_outgoing_wr_en;
     if (tcp_outgoing_wr_en) begin
       // wr_data is in LE order not network transmit order
-      checksum_stage1 <= {2'b0, tcp_payload_checksum} + { 2'b0, tcp_outgoing_wr_data[7:0], tcp_outgoing_wr_data[15:8] } + {2'b0, tcp_outgoing_wr_data[23:16], tcp_outgoing_wr_data[31:24] };
+      checksum_stage1 <= utils::ones_comp(
+          {
+            tcp_outgoing_wr_data[7:0], tcp_outgoing_wr_data[15:8]
+          },
+          {
+            tcp_outgoing_wr_data[23:16], tcp_outgoing_wr_data[31:24]
+          }
+      );
     end else if (tcp_outgoing_buffer_start) checksum_stage1 <= '0;
   end
   always @(posedge clk) begin
     if (checksum_stage_valid) begin
-      tcp_payload_checksum <= checksum_stage1[15:0] + {14'b0, checksum_stage1[17:16]};
+      tcp_payload_checksum <= utils::ones_comp(checksum_stage1[15:0], tcp_payload_checksum);
     end else if (tcp_outgoing_buffer_start) tcp_payload_checksum <= '0;
   end
 

@@ -123,7 +123,7 @@ module tcp_arbiter #(
 
       .tcb_tx_sel(tcb_tx_sel),
       .to_send_wr_en(to_send_wr_en),
-      .send_tcp(send_tcp),
+      .o_send_tcp(send_tcp),
       .mux_to_send_payload_addr(mux_to_send_payload_addr),
       .mux_to_send_payload_size(mux_to_send_payload_size),
 

@@ -90,7 +90,7 @@ module mac_tx #(
   end
   fifo #(
       .DATA_WIDTH(171),
-      .DEPTH(32)
+      .DEPTH(64)
   ) outgoing_pkt_queue (
       .clk  (clk),
       .rst  (rst),
