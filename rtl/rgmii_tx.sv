@@ -12,7 +12,7 @@ module rgmii_tx (
     output wire phy_txctl,
     output wire [3:0] phy_txd
 );
-  reg [3:0] txd_1 = '0, txd_2 = '0;
+  reg [3:0] txd_1, txd_2;
   wire mac_phy_txer;
   assign mac_phy_txer = 0 ^ mac_phy_txen;
   oddr #(
@@ -49,7 +49,7 @@ module rgmii_tx (
       .INPUT_WIDTH(1)
   ) txc_oddr (
       .rst(rst),
-      .clk(clk90),
+      .clk(clk),
       .d1 (1'b1),
       .d2 (1'b0),
       .q  (phy_txc)
