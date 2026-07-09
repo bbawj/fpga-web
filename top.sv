@@ -107,10 +107,10 @@ areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
       .sdram_we_n(sdram_we_n),
       .sdram_cas_n(sdram_cas_n),
       .sdram_ras_n(sdram_ras_n),
-      .sdram_clk(sdram_clk),
       .sdram_dq(sdram_dq),
       .sdram_addr(sdram_addr)
   );
+  assign sdram_clk = sysclk90;
   // `ifdef LATTICE
     // b__wrapper #(.DATA_WIDTH(32)) bb_(.T(~sdram_dq_oe), .I(sdram_wr_data), .O(sdram_dq_in), .B(sdram_dq));
   // `else

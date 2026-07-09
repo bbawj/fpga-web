@@ -61,7 +61,7 @@ module sdram_dummy #(
     rd_valid   <= rd_valid_q;
   end
 `else
-  reg [31:0] mem[270000];
+  reg [31:0] mem[300000];
   if (INIT != "") initial $readmemh(INIT, mem);
 
   reg [1:0] state = 0;

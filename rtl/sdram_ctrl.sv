@@ -32,7 +32,6 @@ module sdram_ctrl #(
     output reg sdram_we_n,
     output reg sdram_cas_n,
     output reg sdram_ras_n,
-    output wire sdram_clk,
     inout wire [31:0] sdram_dq,
     output reg [10:0] sdram_addr
 );
@@ -59,9 +58,7 @@ module sdram_ctrl #(
   // 2 cyles min to complete write
   localparam int MRS_DELAY = 2;
   // Programmed during MRS
-  localparam int CAS_LATENCY = 4;
-
-  assign sdram_clk = clk;
+  localparam int CAS_LATENCY = 3;
 
   reg sdram_dq_oe = 0;
   assign sdram_dq = sdram_dq_oe ? wr_data : 32'hzzzzzzzz;
@@ -78,7 +75,8 @@ module sdram_ctrl #(
     MRS,
     READ_WAIT,
     READ,
-    WRITE
+    WRITE,
+    WRITE_WAIT
   } sram_state_t;
   sram_state_t state = BOOT, prev_state, next_state;
   reg [31:0] cycle_counter = '0;
@@ -148,6 +146,9 @@ module sdram_ctrl #(
         if (cycle_counter == ROW_ACTIVE_TIME_MIN) next_state = op ? WRITE : READ_WAIT;
       end
       WRITE: begin
+        next_state = WRITE_WAIT;
+      end
+      WRITE_WAIT: begin
         next_state = NOOP;
       end
       READ_WAIT: begin
@@ -163,7 +164,9 @@ module sdram_ctrl #(
   always @(posedge clk) begin
     if (rst) begin
       boot_done <= '0;
+      mrs_done  <= '0;
     end else begin
+      if (state == MRS) mrs_done <= 1;
       if (state == AUTOREFRESH_DONE) boot_done <= 1;
     end
   end
@@ -184,7 +187,7 @@ module sdram_ctrl #(
           sdram_cas_n <= 1;
           sdram_we_n  <= 1;
         end
-        NOOP, AUTOREFRESH_WAIT: begin
+        NOOP, WRITE_WAIT, AUTOREFRESH_WAIT: begin
           sdram_ras_n <= 1;
           sdram_cas_n <= 1;
           sdram_we_n <= 1;
@@ -229,7 +232,6 @@ module sdram_ctrl #(
           sdram_addr <= ra;
         end
         MRS: begin
-          mrs_done <= 1;
           sdram_ras_n <= 1'b0;
           sdram_cas_n <= 1'b0;
           sdram_we_n <= 1'b0;
