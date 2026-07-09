@@ -132,3 +132,15 @@ tcp:
 .PHONY: http
 http:
 	curl -vv --http1.0 http://105.105.105.105:8080/0
+
+# Find all markdown files and define their matching html targets
+MARKDOWN_FILES := $(wildcard docs/pages/*.md)
+HTML_FILES     := $(MARKDOWN_FILES:.md=.html)
+
+.PHONY: pages
+pages: $(HTML_FILES)
+
+# Pattern rule: How to convert ANY .md file into a .html file
+docs/%.html: docs/%.md
+	pandoc "$<" -o "$@" --template="docs/template.html" --ascii --standalone --no-highlight
+

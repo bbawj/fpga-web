@@ -25,20 +25,23 @@ def calc_tcp_checksum(b: bytearray):
 
 NOTFOUND_HTTP = "HTTP/1.0 404 Not Found\r\nContent-Length: "
 BASE_HTTP = "HTTP/1.0 200 OK\r\nContent-Length: "
+PROJ_FOLDER = Path(__file__).parent.parent
+DEFAULT_TARGET = PROJ_FOLDER / "docs/pages"
 
 
-def read_files(start_addr=0x00000000, num_entries=512):
-    root = Path(__file__).parent
+def read_files(start_addr=0x00000000, num_entries=512, folder=DEFAULT_TARGET):
     count = 0
     next_start_addr = start_addr or 0x00000000
     num_entries = num_entries or 512
-    pages = sorted((Path.cwd()/"pages").resolve().glob('*.html'))
-    pages.insert(0, (root/"404.html").resolve())
+    pages = sorted(folder.resolve().glob('*.html'))
+    pages.insert(0, (PROJ_FOLDER / "tools/404.html").resolve())
     with open("addrs.mem", "w") as fa:
         with open("lengths.mem", "w") as fl:
             with open("content.mem", "w", newline="") as fc:
                 with open("content_hex.mem", "w", newline="") as fh:
+                    total_length = 0
                     for p in pages:
+                        print(f"Parsing {p}")
                         assert count < num_entries
 
                         data = p.read_text()
@@ -63,6 +66,7 @@ def read_files(start_addr=0x00000000, num_entries=512):
 
                         count += 1
                         next_start_addr += int(padded_length_32/4)
+                        total_length += int(padded_length_32 / 4)
 
                     # pad the rest with zeroes
                     for i in range(count, num_entries):
@@ -70,7 +74,7 @@ def read_files(start_addr=0x00000000, num_entries=512):
                         fl.write(f"{0:09x}\n")
                     # padding to 512 rows
                     print(padded_length_32)
-                    for i in range(int(padded_length_32/4) + 1, num_entries):
+                    for i in range(total_length + 1, num_entries):
                         fh.write(f'{0:08X}\n')
 
 
@@ -80,5 +84,7 @@ if __name__ == "__main__":
         "-start", help="Start address of Flash to write", type=int)
     parser.add_argument(
         "-entries", help="Number of HTTP entries", type=int)
+    parser.add_argument(
+        "-folder", help="Target folder containing HTTP files", type=str, default=DEFAULT_TARGET)
     args = parser.parse_args()
-    read_files(args.start, args.entries)
+    read_files(args.start, args.entries, args.folder)

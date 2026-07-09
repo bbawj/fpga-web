@@ -10,3 +10,5 @@ __pycache__
 *.fst
 *iverilog_dump.v
 timing
+docs/pages/*.html
+tools/*.mem
