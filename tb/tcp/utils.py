@@ -268,7 +268,7 @@ class TCP_client_sim(TCP_client):
             super().run(wait=False)
             super()._do_control(*args, **kargs)
             # used to raise outstanding exceptions
-            # super().run(wait=True)
+            super().run(wait=True)
         # block asyncio cancelled from propagating as cocotb absorbs the error and reports it as a failed test
         except asyncio.CancelledError:
             pass
@@ -289,7 +289,15 @@ class TCP_client_sim(TCP_client):
                 self.sack <= pkt[TCP].seq <= self.l4[TCP].ack + pkt[TCP].window))
             return True
         else:
-            assert super().master_filter(pkt) == False
+            if pkt[TCP].dport == self.sport:
+                if pkt[TCP].flags == "A":
+                    assert self.l4[TCP].ack == pkt[TCP].seq
+                assert self.l4[TCP].seq >= pkt[TCP].ack  # XXX: seq/ack 2^32 wrap up  # noqa: E501
+                assert ((self.l4[TCP].ack == 0) or (
+                    self.sack <= pkt[TCP].seq <= self.l4[TCP].ack + pkt[TCP].window))
+                return True
+            else:
+                assert not super().master_filter(pkt)
         # assert super().master_filter(pkt), f"What? {self.l4.show2(dump=True)}"
         # return False
 

@@ -98,8 +98,7 @@ module to_ack_fifo (
         end
         LOOP: begin
           rd_en <= 0;
-          if (empty) state <= IDLE;
-          else state <= MATCH;
+          state <= IDLE;
         end
         WAIT_RETRANSMIT: begin
           if (retransmit_granted) begin

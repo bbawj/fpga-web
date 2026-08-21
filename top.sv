@@ -1,10 +1,14 @@
 `default_nettype none
 module top #(
+`ifdef SIM
+  parameter HTTP_CONTENT_FILE = "",
+`endif
   parameter TCP_ECHO_EN = 0,
-  parameter reg [23:0] OFFSET_IN_FLASH = 'h40000,
-  parameter HTTP_ADDR_FILE = "",
-  parameter HTTP_SIZE_FILE = ""
+  parameter reg [23:0] OFFSET_IN_FLASH = 'h40000
   )(
+`ifdef SIM
+    input wire pll_locked, sysclk, sysclk90, spiclk, spiclk90,
+`endif
     input wire clk_25mhz,
     input wire button,
     output wire led,
@@ -36,15 +40,21 @@ module top #(
     output wire [10:0] sdram_addr
 );
 assign mdio = 1;
+`ifdef SIM
+localparam reg [23:0] NUM_BYTES = 10000;
+`else
 localparam reg [23:0] NUM_BYTES = 90000;
+`endif
 
 // RGMII requires specific setup and hold times.
 // This is achieved with a 90 degree phase offset tx_clk relative to the
 // sysclk used to load the tx lines
+wire spi_clken;
+`ifndef SIM
 reg pll_locked;
 wire sysclk;
 wire sysclk90;
-wire spiclk, spiclk90, spi_clken;
+wire spiclk, spiclk90;
 `ifdef SPEED_100M
 // Phase range from 0 to 46, 0 phase is 23. Each division is 1/24 degrees
 clk_gen #(.SYSCLK_DIV(24), .TXC_DIV(24), .TXC_PHASE(29), .MDC_DIV(240), .FB_DIV(1))
@@ -54,27 +64,35 @@ clk_gen #(.SYSCLK_DIV(5), .TXC_DIV(5), .TXC_PHASE(5), .SPI_DIV(5), .SPI_PHASE(7)
 `endif
   _clk_gen (.clk_in(clk_25mhz), .sysclk(sysclk),
     .sysclk90(sysclk90), .spi_en(1'b1), .spiclk(spiclk), .spiclk90(spiclk90), .clk_locked(pll_locked));
+`endif
 
+`ifndef SIM
 USRMCLK u1(.USRMCLKI(spiclk90), .USRMCLKTS(~pll_locked)) /* synthesis syn_noprune=1 */;
+`endif
 
 wire rst;
 assign led = ~rst && (flash_done ? blinking : 1'b1);
 
 // Force a minimum reset pulse width regardless of pll_locked behavior
+`ifdef SIM
+localparam reg [15:0] INITWAIT = 16'h00FF;
+`else
+localparam reg [15:0] INITWAIT = 16'hFFFF;
+`endif
 reg [15:0] init_counter = '0;  // initialised in bitstream
 reg init_wait_done = 0;
 always @(posedge sysclk) begin
     if (!pll_locked) begin
         init_counter  <= '0;
         init_wait_done <= 0;
-    end else if (init_counter != 16'hFFFF) begin
+    end else if (init_counter != INITWAIT) begin
         init_counter  <= init_counter + 1;
         init_wait_done <= 0;
     end else begin
         init_wait_done <= 1;
     end
 end
-areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
+areset areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
 
   logic sdram_wr_req, sdram_ready;
   wire sdram_wr_granted;
@@ -84,6 +102,25 @@ areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
   logic [31:0] sdram_dq_in;
   logic sdram_rd_req, sdram_dq_oe;
   logic sdram_rd_valid, sdram_rd_granted;
+
+`ifdef SIM
+  sdram_dummy m (
+      .clk(sysclk),
+      .rst(rst),
+
+      .wr_req(sdram_wr_req),
+      .wr_ad(sdram_wr_ad),
+      .wr_data(sdram_wr_data),
+      .wr_granted(sdram_wr_granted),
+
+      .rd_req(sdram_rd_req),
+      .rd_ad(sdram_rd_ad),
+      .rd_valid(sdram_rd_valid),
+      .rd_data(sdram_rd_data),
+      .rd_granted(sdram_rd_granted),
+      .boot_done(sdram_ready)
+  );
+`else
   sdram_ctrl #(
       .FREQ(125_000_000)
   ) m (
@@ -110,6 +147,7 @@ areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
       .sdram_dq(sdram_dq),
       .sdram_addr(sdram_addr)
   );
+`endif
   assign sdram_clk = sysclk90;
   // `ifdef LATTICE
     // b__wrapper #(.DATA_WIDTH(32)) bb_(.T(~sdram_dq_oe), .I(sdram_wr_data), .O(sdram_dq_in), .B(sdram_dq));
@@ -198,13 +236,15 @@ areset _areset(.clk(sysclk), .rst_n(button & init_wait_done), .rst(rst));
       .rdy(),
       .tx(gpio_3)
   );
+  wire mac_rst;
+  assign mac_rst = rst | ~flash_done;
 
-mac #(.HTTP_ADDR_FILE(HTTP_ADDR_FILE), .HTTP_SIZE_FILE(HTTP_SIZE_FILE)) mac_instance(
+mac mac_instance(
   // We use base clock here instead of PHY_TXC as we purposely hold the data
   // 90 degrees before TXC edge
   .clk(sysclk),
   .clk90(sysclk90),
-  .rst(rst),
+  .rst(mac_rst),
   .tcp_echo_en(TCP_ECHO_EN == 0 ? 1'b0 : 1'b1),
   .uart_tx(gpio_0),
   .uart_tx2(gpio_1),
@@ -214,7 +254,6 @@ mac #(.HTTP_ADDR_FILE(HTTP_ADDR_FILE), .HTTP_SIZE_FILE(HTTP_SIZE_FILE)) mac_inst
   .mem_ctrl_rd_ad(sdram_rd_ad),
   .mem_ctrl_rd_size(),
   .mem_ctrl_rd_valid(sdram_rd_valid),
-  .mem_ctrl_rd_granted(sdram_rd_granted),
   .mem_ctrl_rd_data(sdram_rd_data),
 
   .phy_txc(phy0_txc),

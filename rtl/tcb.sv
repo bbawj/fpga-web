@@ -176,11 +176,11 @@ module tcb #(
           serial_state <= SERIAL_UPPER;
           to_send_rden <= 1;
           serial_payload_size <= to_send_payload_size;
-          serial_payload_addr <= to_send_payload_addr;
         end
         SERIAL_UPPER: begin
           to_send_rden <= 0;
           serial_state <= SERIAL_UPPER_UPDATE;
+          serial_payload_addr <= to_send_payload_addr_q;
           serial_wren <= 1;
           serial_ack_num <= tcb_mem.ack_num;
           case (tcb_mem.state)
@@ -273,7 +273,7 @@ module tcb #(
   localparam int IDLE_TIMEOUT = 'd1250000000;
 `else
   localparam int FIN_TIMEOUT = 'd12500;
-  localparam int IDLE_TIMEOUT = 'd12500;
+  localparam int IDLE_TIMEOUT = 'd125000;
 `endif
   wire fin_timeout;
   assign fin_timeout = fin_timeout_counter == '0;

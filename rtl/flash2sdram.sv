@@ -3,7 +3,7 @@
 * Pulls flash memory into SDRAM
 */
 module flash2sdram #(
-    parameter NUM_BYTES = 64
+    parameter logic [23:0] NUM_BYTES = 64
 ) (
     input wire clk,
     input wire spiclk,
@@ -25,9 +25,9 @@ module flash2sdram #(
     output reg done = 0
 );
   // 32-bit words
-  localparam NUM_WORD = NUM_BYTES / 4;
+  localparam logic [23:0] NUM_WORD = NUM_BYTES / 4;
 
-  reg [15:0] write_counter = 0, read_counter = 0;
+  reg [23:0] write_counter = 0, read_counter = 0;
   reg [1:0] spi_counter = 0;
   reg [1:0] state = 0;
   // reg spi_ready = 0;

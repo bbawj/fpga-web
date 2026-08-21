@@ -2,8 +2,7 @@
 `include "utils.svh"
 
 module mac #(
-    parameter HTTP_ADDR_FILE = "",
-    parameter HTTP_SIZE_FILE = ""
+    parameter int LOC_IP_ADDR = 32'hC0A84545  // 192.168.69.69
 ) (
     input wire clk,
     // for TXC
@@ -18,7 +17,6 @@ module mac #(
     output logic [18:0] mem_ctrl_rd_ad,
     output logic [15:0] mem_ctrl_rd_size,
     input wire mem_ctrl_rd_valid,
-    input wire mem_ctrl_rd_granted,
     input wire [31:0] mem_ctrl_rd_data,
     // PHY0 MII Interface
     output wire phy_txc,
@@ -30,7 +28,6 @@ module mac #(
 );
 
   localparam [47:0] LOC_MAC_ADDR = 48'hDEADBEEFCAFE;
-  localparam [31:0] LOC_IP_ADDR = 32'h69696969;
 
 `ifdef LOOPBACK
   reg [3:0] rxd_temp = '0;
@@ -83,9 +80,7 @@ module mac #(
   // incoming buffer payload.
   logic tcp_tx_payload_rd_en, tcp_tx_payload_rd_valid;
   assign tcp_buff_rd_en = tcp_echo_en ? tcp_tx_payload_rd_en : http_req_payload;
-  wire [31:0] tcp_tx_payload_rd_data;
-  assign tcp_tx_payload_rd_data  = tcp_echo_en ? tcp_buff_rd_data : mem_ctrl_rd_data;
-  assign tcp_tx_payload_rd_valid = tcp_echo_en ? tcp_buff_rd_valid : mem_ctrl_rd_valid;
+  reg [31:0] tcp_tx_payload_rd_data;
 
   reg [7:0] tcp_decode_payload;
   reg tcp_decode_payload_valid;
@@ -106,8 +101,6 @@ module mac #(
       .rd_valid(tcp_buff_rd_valid),
       .rd_data(tcp_buff_rd_data)
   );
-
-  assign mem_ctrl_rd_req = tcp_tx_payload_rd_en && !tcp_echo_en;
 
   reg send_arp, send_tcp;
   tcp::packet_t tcp_tx_packet_pending;
@@ -461,7 +454,7 @@ module mac #(
           if (http_res_valid) begin
             // an error in http decoding always sends the 404 page hard coded at
             // endpoint 0.
-            to_send_payload_addr <= http_res_err ? 0 : http_payload_addr;
+            to_send_payload_addr <= http_res_err ? 'd1024 : http_payload_addr;
             to_send_payload_size <= http_res_err ? 'h294 : http_payload_size;
             outgoing_tcp <= 1;
             http_state <= 1;
@@ -480,10 +473,11 @@ module mac #(
       endcase
   end
 
-  http_decode #(
-      .HTTP_ADDR_FILE(HTTP_ADDR_FILE),
-      .HTTP_SIZE_FILE(HTTP_SIZE_FILE)
-  ) http_dec (
+  reg http_rdy;
+  reg http_entry_rd_valid, http_entry_rd_en;
+  reg [31:0] http_entry_rd_data;
+  reg [18:0] http_entry_rd_ad;
+  http_decode http_dec (
       // FIXME: decode payload is off from phy_rxc
       .clk(clk),
       .rst(rst),
@@ -491,13 +485,39 @@ module mac #(
       .i_payload_valid(tcp_buff_rd_valid),
       .i_payload_data(tcp_buff_rd_data),
       .payload_rd_en(http_req_payload),
+      .mem_rd_valid(http_entry_rd_valid),
+      .mem_rd_data(http_entry_rd_data),
 
+      .rdy(http_rdy),
+      .mem_rd_en(http_entry_rd_en),
+      .mem_rd_ad(http_entry_rd_ad),
       .res_valid(http_res_valid),
       .res_err(http_res_err),
       .res_payload_size(http_payload_size),
       .res_payload_addr(http_payload_addr)
   );
 
+  always_comb begin
+    if (http_rdy) begin
+      mem_ctrl_rd_ad = tcp_tx_payload_rd_ad;
+      mem_ctrl_rd_size = tcp_tx_payload_rd_size;
+      mem_ctrl_rd_req = tcp_tx_payload_rd_en && !tcp_echo_en;
+      http_entry_rd_valid = 0;
+      http_entry_rd_data = '0;
+      tcp_tx_payload_rd_data = tcp_echo_en ? tcp_buff_rd_data : mem_ctrl_rd_data;
+      tcp_tx_payload_rd_valid = tcp_echo_en ? tcp_buff_rd_valid : mem_ctrl_rd_valid;
+    end else begin
+      mem_ctrl_rd_ad = http_entry_rd_ad;
+      mem_ctrl_rd_size = '0;
+      mem_ctrl_rd_req = http_entry_rd_en;
+      http_entry_rd_valid = mem_ctrl_rd_valid;
+      http_entry_rd_data = mem_ctrl_rd_data;
+      tcp_tx_payload_rd_data = '0;
+      tcp_tx_payload_rd_valid = '0;
+    end
+  end
+  logic [18:0] tcp_tx_payload_rd_ad;
+  logic [15:0] tcp_tx_payload_rd_size;
   mac_tx #(
       .MY_MAC_ADDR(LOC_MAC_ADDR),
       .MY_IP_ADDR (LOC_IP_ADDR)
@@ -517,8 +537,8 @@ module mac #(
       .tcp_payload_rd_valid(tcp_tx_payload_rd_valid),
       .tcp_payload_rd_data(tcp_tx_payload_rd_data),
       .tcp_payload_rd_en(tcp_tx_payload_rd_en),
-      .tcp_payload_rd_ad(mem_ctrl_rd_ad),
-      .tcp_payload_rd_size(mem_ctrl_rd_size),
+      .tcp_payload_rd_ad(tcp_tx_payload_rd_ad),
+      .tcp_payload_rd_size(tcp_tx_payload_rd_size),
 
       .o_misc(misc_state),
       .o_payload_buff_state(payload_buff_state),

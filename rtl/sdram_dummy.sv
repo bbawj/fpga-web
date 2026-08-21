@@ -64,24 +64,33 @@ module sdram_dummy #(
   reg [31:0] mem[300000];
   if (INIT != "") initial $readmemh(INIT, mem);
 
-  reg [1:0] state = 0;
+  reg [2:0] state = 0;
   always @(posedge clk) begin
     case (state)
       0: begin
         rd_granted <= 0;
         wr_granted <= 0;
         rd_valid <= 0;
-        state <= wr_req ? 1 : (rd_req ? 2 : 0);
+        state <= wr_req ? 1 : (rd_req ? 3 : 0);
       end
       1: begin
         wr_granted <= 1;
         mem[wr_ad] <= wr_data;
-        state <= 0;
+        state <= 2;
       end
       2: begin
+        wr_granted <= 0;
+        state <= 0;
+      end
+      3: begin
         rd_granted <= 1;
         rd_data <= mem[rd_ad];
         rd_valid <= 1;
+        state <= 4;
+      end
+      4: begin
+        rd_granted <= 0;
+        rd_valid <= 0;
         state <= 0;
       end
       default: state <= 0;

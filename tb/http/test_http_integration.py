@@ -1,4 +1,3 @@
-import pytest
 import cocotb
 import os
 from pathlib import Path
@@ -7,12 +6,13 @@ from cocotb.clock import Timer
 from cocotb.utils import get_sim_steps
 from cocotb_tools.runner import get_runner
 from cocotbext.eth import RgmiiPhy
-from scapy.all import Raw, RandString, Ether, TCP, IP
+from scapy.all import Raw
 from tcp.utils import TCPIntegrated, TCP_client_sim, PacketGen, TCP_rst_client
 
+BASE_HTTP = "HTTP/1.0 200 OK\r\nContent-Length: "
 LOC_MAC_ADDR = "DEADBEEFCAFE"
 MAC_SRC = "b025aa3306fe"
-server_ip = "105.105.105.105"
+server_ip = "192.168.69.69"
 server_port = 8080
 dst_mac = ":".join([LOC_MAC_ADDR[i:i+2]
                     for i in range(0, len(LOC_MAC_ADDR)-1, 2)])
@@ -54,6 +54,7 @@ class TB:
         self.dut.rst.value = 0
         await RisingEdge(self.dut.clk)
         await RisingEdge(self.dut.clk)
+        await with_timeout(RisingEdge(self.dut.mac_instance.http_rdy), 1, "ms")
 
 
 @cocotb.test()
@@ -72,6 +73,47 @@ async def http_integration_small_page(dut):
     await Timer(5000, "ns")
     assert tcp.recv_count == 1
     gen.from_bench.put(Raw("GET /0\r\n"))
+    await Timer(150, "us")
+    assert tcp.recv_count == 5
+    with open("../pages/0.html", "rb") as f:
+        assert bytes(tcp.payload) == f.read().rjust(32, b'\x00')
+
+
+@cocotb.test()
+async def http_integration_small_page_long_headers(dut):
+    tb = TB(dut)
+
+    await tb.reset()
+    tb.dut.tcp_echo_en.value = 0
+    client_ref = []
+    client_ip = "192.168.1.1"
+    client_port = 5000
+    gen = PacketGen(client_ip, client_port)
+    tcp = TCPIntegrated(tb, False, dst_mac, src_mac)
+    cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
+        tcp, client_ref, False, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
+    await Timer(5000, "ns")
+    assert tcp.recv_count == 1
+    request = (
+        "GET /0 HTTP/1.1\r\n"
+        "Host: fpga.aabv.duckdns.org\r\n"
+        "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36\r\n"
+        "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8\r\n"
+        "Accept-Language: en-US,en;q=0.9\r\n"
+        "Accept-Encoding: gzip, deflate, br\r\n"
+        "sec-ch-ua: \"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Brave\";v=\"146\"\r\n"
+        "sec-ch-ua-mobile: ?0\r\n"
+        "sec-ch-ua-platform: \"Linux\"\r\n"
+        "Upgrade-Insecure-Requests: 1\r\n"
+        "Sec-Fetch-Dest: document\r\n"
+        "Sec-Fetch-Mode: navigate\r\n"
+        "Sec-Fetch-Site: none\r\n"
+        "Sec-Fetch-User: ?1\r\n"
+        "Priority: u=0, i\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+    )
+    gen.from_bench.put(Raw(request))
     await Timer(50, "us")
     assert tcp.recv_count == 5
     with open("../pages/0.html", "rb") as f:
@@ -80,6 +122,12 @@ async def http_integration_small_page(dut):
 
 @cocotb.test()
 async def http_integration_big_page(dut):
+    # the HTML file is not padded to 4 byte alignment
+    with open("../pages/1.html", "rb") as f:
+        content = f.read()
+    extra = f"{BASE_HTTP}{len(content)}\r\n\r\n"
+    content += b" " * (4-(len(extra) % 4))
+
     tb = TB(dut)
 
     await tb.reset()
@@ -94,9 +142,9 @@ async def http_integration_big_page(dut):
     await Timer(5000, "ns")
     assert tcp.recv_count == 1
     gen.from_bench.put(Raw("GET /1\r\n"))
-    await Timer(300, "us")
-    with open("../pages/1.html", "rb") as f:
-        assert bytes(tcp.payload) == f.read().rjust(32, b'\x00')
+    await Timer(400, "us")
+
+    assert bytes(tcp.payload) == content
     assert tcp.recv_count == 19
 
 
@@ -125,9 +173,9 @@ Sec-GPC: 1
 Accept-Language: en-GB,en;q=0.9
 Referer: http://105.105.105.105:8080/0
 Accept-Encoding: gzip, deflate"""))
-    await Timer(20000, "ns")
-    client_ref[0].stop(wait=False)
-    await Timer(5000, "ns")
+    await Timer(25000, "ns")
+    # client_ref[0].stop(wait=False)
+    await Timer(8000, "ns")
     assert tcp.recv_count == 5
 
 
@@ -147,7 +195,7 @@ async def http_no_path_during_normal(dut):
     await Timer(5000, "ns")
     assert tcp.recv_count == 1
     gen.from_bench.put(Raw("GET /0\r\n"))
-    await Timer(30000, "ns")
+    await Timer(40000, "ns")
     cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
         tcp, client_ref, False, server_ip, server_port, client_ip, client_port+123, external_fd={"tcp": gen}))
     await Timer(5000, "ns")
@@ -178,19 +226,22 @@ async def http_tcp_rst(dut):
     client_port = 5000
     gen = PacketGen(client_ip, client_port)
     tcp = TCPIntegrated(tb, False, dst_mac, src_mac)
-    cocotb.start_soon(cocotb.task.bridge(TCP_rst_client)(
+    rst_client = cocotb.start_soon(cocotb.task.bridge(TCP_rst_client)(
         tcp, client_ref, False, server_ip, server_port, client_ip, client_port, external_fd={"tcp": gen}))
     await Timer(5000, "ns")
     gen.from_bench.put(Raw("GET /0\r\n"))
-    await Timer(20000, "ns")
-    assert tcp.recv_count == 3
+    await Timer(10000, "ns")
     client_ref[0].stop(wait=False)
     await Timer(5000, "ns")
-    cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
-        tcp, client_ref, False, server_ip, server_port, client_ip, client_port + 123, external_fd={"tcp": gen}))
-    await Timer(5000, "ns")
+    next_client = cocotb.start_soon(cocotb.task.bridge(TCP_client_sim)(
+        tcp, client_ref, True, server_ip, server_port, client_ip, client_port + 123, external_fd={"tcp": gen}))
+    await Timer(10, "us")
     client_ref[1].stop(wait=False)
     await Timer(5000, "ns")
+    await next_client.complete
+    assert client_ref[1].state.final
+    assert rst_client.exception() is None
+    assert next_client.exception() is None
 
 
 @cocotb.test(skip=True)
@@ -256,10 +307,9 @@ def test_http_integration():
         waves=True,
         verbose=True,
         includes=[f"{source_folder}/"],
-        parameters={"HTTP_ADDR_FILE": f'"{addr_file_abs}"',
-                    "HTTP_SIZE_FILE": f'"{size_file_abs}"',
-                    "HTTP_CONTENT_FILE": f'"{content_file_abs}"',
-                    },
+        parameters={
+            "HTTP_CONTENT_FILE": f'"{content_file_abs}"',
+        },
         build_args=["--threads", "8", "--trace-fst",
                     "--trace-structs", "--bbox-unsup",
                     "-y", "/home/bawj/lscc/diamond/3.14/cae_library/simulation/verilog/ecp5u/",

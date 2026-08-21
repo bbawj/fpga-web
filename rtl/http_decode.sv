@@ -6,15 +6,18 @@
 * Response is asserted 3 cycles after i_payload_valid is de-asserted. Response
 * is asserted for only 1 cycle with no handshaking.
 */
-module http_decode #(
-    parameter HTTP_ADDR_FILE = "",
-    parameter HTTP_SIZE_FILE = ""
-) (
+module http_decode (
     input clk,
     input rst,
     input tcp_payload_valid,
     input i_payload_valid,
     input [31:0] i_payload_data,
+    input reg mem_rd_valid,
+    input reg [31:0] mem_rd_data,
+
+    output reg rdy,
+    output reg mem_rd_en,
+    output reg [18:0] mem_rd_ad,
     // Asserted to ask for the payload
     output reg payload_rd_en,
     output reg res_valid,
@@ -114,12 +117,15 @@ module http_decode #(
     endcase
   end
 
-  http_entry #(
-      .HTTP_ADDR_FILE(HTTP_ADDR_FILE),
-      .HTTP_SIZE_FILE(HTTP_SIZE_FILE)
-  ) cam (
+  http_entry cam (
       .clk(clk),
+      .rst(rst),
       .key(key),
+      .mem_rd_valid(mem_rd_valid),
+      .mem_rd_data(mem_rd_data),
+      .mem_rd_en(mem_rd_en),
+      .mem_rd_ad(mem_rd_ad),
+      .rdy(rdy),
       .content_addr(res_payload_addr),
       .content_size(res_payload_size),
       .content_checksum()
