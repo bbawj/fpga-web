@@ -4,21 +4,25 @@ module areset (
     output wire rst
 );
 
+`ifdef SIM
+  localparam logic [17:0] DEBOUNCECOUNT = 18'd100;
+`else
+  localparam logic [17:0] DEBOUNCECOUNT = 18'd250000;
+`endif
   reg [17:0] debounce_count = '0;
   reg rst_n_debounced = 0;
 
-  reg [2:0] sync_fifo;
-  initial sync_fifo = 2'h3;
+  reg [2:0] sync_fifo = 3'b111;
 
   always @(posedge clk) begin
     {sync_fifo[2:1], sync_fifo[0]} <= {sync_fifo[1:0], rst_n};
 
     if (sync_fifo[1] != sync_fifo[0]) debounce_count <= 0;
-    else if (debounce_count != 18'd250000) begin
+    else if (debounce_count != DEBOUNCECOUNT) begin
       debounce_count <= debounce_count + 1;
     end
 
-    if (debounce_count == 18'd250000) begin
+    if (debounce_count == DEBOUNCECOUNT) begin
       rst_n_debounced <= sync_fifo[2];
     end
   end

@@ -1,10 +1,11 @@
 import os
 import cocotb
+from utils import WinbondRAM
 from cocotb_tools.runner import get_runner
 from cocotb.clock import Clock, Timer
 from cocotb.utils import get_sim_steps
 from cocotb.triggers import RisingEdge, FallingEdge, with_timeout, First
-from cocotbext.spi import SpiSlaveBase, SpiBus, SpiConfig, SpiFrameError
+from cocotbext.spi import SpiBus
 
 
 class TB:
@@ -42,60 +43,6 @@ class TB:
                 await t
                 port.value = cocotb.handle.Immediate(0)
                 await t
-
-
-class WinbondRAM(SpiSlaveBase):
-    _config = SpiConfig(
-        word_width=8,     # all parameters optional
-        sclk_freq=125e6,   # these are the defaults
-        cpol=False,
-        cpha=False,
-        msb_first=True,
-        data_output_idle=0,
-        cs_active_low=True  # optional (assumed True)
-    )
-
-    def __init__(self, bus, mem=None):
-        self.values = {"inst": 0, "addr": 0}
-        self.mem = mem
-        super().__init__(bus)
-
-    async def get_values(self):
-        await self.idle.wait()
-        return self.values
-
-    async def _byte_2_bit(self, frame_end, b):
-        for i in range(self._config.word_width):
-            self._miso.value = bool(
-                b & (1 << (self._config.word_width - 1 - i)))
-            s = First(await First(FallingEdge(self._sclk), frame_end))
-            t = First(await Timer(1.5, unit="ns"), frame_end)
-            assert frame_end not in (
-                s, t), "SPI ended in the middle of transaction"
-
-    async def _transaction(self, frame_start, frame_end) -> None:
-        await frame_start
-        self.idle.clear()
-        if bool(self._sclk.value):
-            raise SpiFrameError(
-                "sclk should be low at chip select edge")
-
-        self.values["inst"] = int(await self._shift(8))
-        if (self.values["inst"] != 0x9f):
-            self.values["addr"] = int(await self._shift(24))
-            starting_val = self.mem[self.values["addr"]]
-        # FIXME: the behavior does not match the data sheet. MISO only changes
-        # 1 cycle after the last MOSI bit. workaround here:
-        await FallingEdge(self._sclk)
-
-        counter = 0
-        if (self.values["inst"] != 0x9f):
-            while await First(cocotb.start_soon(self._byte_2_bit(frame_end, starting_val+counter)), frame_end) != frame_end:
-                counter += 1
-                pass
-        else:
-            await self._byte_2_bit(frame_end, 0xDE)
-            await frame_end
 
 
 @cocotb.test()
